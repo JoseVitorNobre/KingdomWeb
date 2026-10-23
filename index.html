@@ -44,7 +44,7 @@ function menu(msg){
   <p>Sobreviva a ${NIGHTS} noites. Os Greed saem dos portais à noite e atacam muros e a sede.</p>
   <p><b>A / D</b> ou <b>←/→</b> mover · <b>S</b> ou <b>↓</b> pagar/construir (perto de um alvo)</p>
   <p>Jogador 2: <b>←/→/↓</b>. Tela dividida em cima/baixo.</p>
-  <p>Recrute vagabundos (1 moeda). Ao lado da sede há duas bancadas de 2 moedas: a de martelo (esquerda) transforma um camponês em <b>construtor</b>; a de arco (direita) em <b>arqueiro</b>. Arqueiros ocupam torres livres; sem torre, guardam atrás do muro mais externo e atiram. Muros (2/4/7) só sobem se um construtor trabalhar neles. Pague 1 em uma árvore para marcá-la: o construtor a derruba (permanente) e ela gera moedas. Árvores com placa liberam um ponto de muro ou de arco ao caírem. Passe sobre baús para abri-los. Torres de arco custam 3/5/8, exigem construtor e cada nível comporta um arqueiro a mais; a sede sobe por 5/9. Camponeses geram moedas ao amanhecer. Greed que tocam você roubam todas as moedas.</p>
+  <p>Recrute vagabundos (1 moeda): cada acampamento gera um novo a cada amanhecer. Ao lado da sede há duas bancadas com até 4 ferramentas cada: pague 2 para colocar uma ferramenta; um camponês ocioso vai até a bancada, pega a ferramenta e vira <b>construtor</b> (martelo, esquerda) ou <b>arqueiro</b> (arco, direita). À noite, construtores só trabalham dentro das muralhas. Arqueiros ocupam torres livres; sem torre, guardam atrás do muro mais externo e atiram. Muros (2/4/7) só sobem se um construtor trabalhar neles. Pague 1 em uma árvore para marcá-la: o construtor a derruba (permanente) e ela gera moedas. Árvores com placa liberam um ponto de muro ou de arco ao caírem. Passe sobre baús para abri-los. Torres de arco custam 3/5/8, exigem construtor e cada nível comporta um arqueiro a mais; a sede sobe por 5/9. Camponeses geram moedas ao amanhecer. Greed que tocam você roubam todas as moedas.</p>
   <p>Online: o servidor (<b>node server.js</b>) permite até 6 jogadores no mesmo reino.</p>
   <p>Pressione <b>1</b> (1 jogador), <b>2</b> (2 locais) ou <b>3</b> (online)</p>`;
 }
@@ -146,13 +146,22 @@ function scaf(s,T){
   if(bl){const need=3+2*s.lvl;B(s.x,12,2,'#222',by);B(s.x-6+6*bl.wt/need,12*bl.wt/need,2,'#7fd35a',by)}
   else spr(HAM,HAMP,s.x,by+1+(Math.floor(T*2)%2),false);
 }
-function stand(px,k){
+function camp(px,dk,T){
+  for(let r=0;r<9;r++)B(px-6,18-r*2,1,r%2?'#a9855a':'#8f6d46',r);
+  B(px-6,4,5,'#2b1d12');B(px-6,1,3,'#4b3b2a',9);
+  if(dk>0){x.fillStyle=`rgba(255,160,70,${.2*dk})`;x.beginPath();x.arc(px+8,gyc-6,28,0,7);x.fill()}
+  B(px+4,2,2,'#888');B(px+12,2,2,'#888');B(px+6,8,2,'#6b4a2a');B(px+10,8,2,'#6b4a2a',1);
+  B(px+8,3,3,Math.floor(T*6)%2?'#ff9a2a':'#ffd23a',2);B(px+8,1,2,'#e33',5);
+  B(px-16,5,2,'#6b4a2a');B(px-16,3,1,'#d9c9a0',2);
+}
+function stand(px,k,n){
   const bow=k==='bow';
   B(px,20,4,'#6b4e2e');B(px,20,1,'#8b6b43',4);
   if(bow){spr(BBOW,BOWP,px-3,4,false,0,2);B(px+5,3,7,'#8b5a2b',5);B(px+4,1,3,'#e8e0c0',12);B(px+6,1,3,'#e8e0c0',12)}
   else{spr(PER,ROLE.bld,px-3,4,false,0,2);spr(HAM,HAMP,px+8,4,false,0,2)}
   B(px-10,2,27,'#6b4e2e');B(px+10,2,27,'#6b4e2e');
   for(let i=0;i<10;i++)B(px-10+i*2+1,2,3,i%2?'#f2e6c4':(bow?'#3f8a4a':'#d9722b'),24);
+  for(let i=0;i<4;i++){B(px-7+i*5,3,1,'#2b1d12',1);if(i<n){if(bow)spr(BOW,BOWP,px-7+i*5,5,false);else spr(HAM,HAMP,px-7+i*5,5,false)}}
 }
 
 function view(vx,vy,vw,vh,p){
@@ -203,7 +212,7 @@ function view(vx,vy,vw,vh,p){
       if(sl.pend)scaf(sl,T);
     }
   });
-  stand(CX-64,'ham');stand(CX+64,'bow');
+  stand(CX-64,'ham',G.tools.ham);stand(CX+64,'bow',G.tools.bow);
   // sede
   const L=G.cen.lvl,cw=22+L*8,ch=16+L*5;
   if(dk>0){x.fillStyle=`rgba(255,180,80,${.18*dk})`;x.beginPath();x.arc(CX,gy-8,50,0,7);x.fill()}
@@ -216,6 +225,7 @@ function view(vx,vy,vw,vh,p){
   B(CX-cw/2-10,3,3,dk>.3?'#ff9a2a':'#4a4036');B(CX-cw/2-10,5,1,'#3a2616');
   // moedas
   G.co.forEach(c=>spr(COIN,{y:'#f2c53d',Y:'#fff1a0'},c.x,2+Math.abs(Math.sin(T*3+c.x))*2,false));
+  CAMPS.forEach(c=>{if(c>cam-40&&c<cam+vws+40)camp(c,dk,T)});
   // gente
   G.vg.forEach(v=>person('vag',v.x,0,v.tx<v.x,Math.abs(v.tx-v.x)>1,T));
   G.pe.forEach(q=>{

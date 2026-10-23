@@ -1,5 +1,6 @@
 // Lógica do jogo, compartilhada entre navegador (modo local) e servidor (modo online)
 const WW=3200,CX=1600,NIGHTS=8,DAYLEN=160;
+const CAMPS=[CX-1400,CX-900,CX+900,CX+1400];
 const SL=[[-110,'bow',1],[110,'bow',1],[-220,'wall',1],[220,'wall',1],[-360,'bow',2],[360,'bow',2],[-470,'wall',2],[470,'wall',2],[-640,'wall',3],[640,'wall',3]];
 const WALLHP=[0,8,16,26],WALLC=[2,4,7],BOWC=[3,5,8],CENC=[5,9];
 const K=[{l:'KeyA',r:'KeyD',d:'KeyS'},{l:'ArrowLeft',r:'ArrowRight',d:'ArrowDown'}];
@@ -16,7 +17,7 @@ function newGame(n){
     cen:{lvl:1,hp:14,max:14,cd:0},
     sl:SL.map(([o,t,r])=>({x:CX+o,t,req:r,lvl:0,hp:0,ar:null,cd:0,side:Math.sign(o)})),
     pe:[{x:CX-30,tx:CX-30,job:0},{x:CX+30,tx:CX+30,job:0}],
-    vg:[],gr:[],co:Array.from({length:10},(_,i)=>({x:CX-36+i*8})),fx:[],tr:mkTrees(),st:[],ch:mkChests(),tt:30};
+    nid:4,tools:{ham:0,bow:0},vg:CAMPS.map((c,i)=>({id:i+1,x:c,tx:c,w:0,home:c})),gr:[],co:Array.from({length:10},(_,i)=>({x:CX-36+i*8})),fx:[],tr:mkTrees(),st:[],ch:mkChests(),tt:30};
 }
 
 function mkTrees(){const a=[];while(a.length<12){const t=rnd(160,WW-160);if(Math.abs(t-CX)>200)a.push({x:t,mark:0,v:a.length%2})}
@@ -31,12 +32,8 @@ function targetFor(p){
   G.vg.forEach(v=>cand(v.x,1,()=>{G.vg.splice(G.vg.indexOf(v),1);G.pe.push({x:v.x,tx:v.x,job:0})},'per'));
   G.sl.forEach(s=>{if(G.cen.lvl<s.req||s.pend)return;const c=cost(s);if(c)cand(s.x,c,()=>{s.pend=1},s.t)});
   G.tr.forEach(t=>{if(!t.mark)cand(t.x,1,()=>{t.mark=1},'axe')});
-  const idl=hx=>{let b=null,bd=1e9;G.pe.forEach(q=>{if(!q.job&&!q.b&&!q.a){const d=Math.abs(q.x-hx);if(d<bd){bd=d;b=q}}});return b};
-  if(idl(CX)){
-    cand(CX-64,2,()=>{const q=idl(CX-64);if(q)q.b=1},'ham');
-    cand(CX+64,2,()=>{const q=idl(CX+64);if(q){q.sd=G.pe.filter(o=>o.a).length%2?1:-1;q.a=1}},'arc');
-  }
-  if(G.cen.lvl<3)cand(CX,CENC[G.cen.lvl-1],()=>{G.cen.lvl++;G.cen.max+=8;G.cen.hp=G.cen.max},'home');
+  if(G.tools.ham<4)cand(CX-64,2,()=>{G.tools.ham++},'ham');
+  if(G.tools.bow<4)cand(CX+64,2,()=>{G.tools.bow++},'arc');
   return best;
 }
 
@@ -57,6 +54,7 @@ function update(dt){
     G.gr.forEach(g=>G.fx.push({k:'puff',x:g.x,l:.4}));G.gr=[];
     G.co.push({x:CX});
     G.pe.forEach(q=>G.co.push({x:q.x+rnd(-6,6)}));
+    CAMPS.forEach(c=>{if(!G.vg.some(v=>v.home===c))G.vg.push({id:G.nid=(G.nid||0)+1,x:c,tx:c,w:0,home:c})});
     if(G.day>NIGHTS){G.over='win';return}
   }
   // spawn de Greed
@@ -69,12 +67,7 @@ function update(dt){
       G.left--;G.sp=Math.max(.7,1.6-.07*G.day);
     }
   }
-  // vagabundos
-  if(dark()<.3){
-    G.vt-=dt;
-    if(G.vt<=0){G.vt=rnd(4,8);if(G.vg.length<4){const s=Math.random()<.5?-1:1;const vx=CX+s*rnd(300,1000);G.vg.push({id:G.nid=(G.nid||0)+1,x:vx,tx:vx,w:0})}}
-  }
-  G.vg.forEach(v=>{v.w-=dt;if(v.w<=0){v.tx=clamp(v.x+rnd(-60,60),100,WW-100);v.w=rnd(2,5)}
+  G.vg.forEach(v=>{v.w-=dt;if(v.w<=0){v.tx=clamp(v.x+rnd(-40,40),v.home-45,v.home+45);v.w=rnd(2,5)}
     const d=v.tx-v.x;if(Math.abs(d)>1)v.x+=Math.sign(d)*Math.min(Math.abs(d),18*dt)});
   // jogadores
   G.P.forEach((p,i)=>{
@@ -98,20 +91,35 @@ function update(dt){
   const wl=bw.filter(v=>v<CX),wr=bw.filter(v=>v>CX);
   const zl=wl.length?Math.min(...wl)+12:CX-150,zr=wr.length?Math.max(...wr)-12:CX+150;
   const bl=G.pe.filter(q=>q.b);
-  bl.forEach(q=>{if(nt||(q.work&&!(q.work.pend||q.work.mark)))q.work=null});
-  if(!nt){
+  const ins=v=>v>=zl-14&&v<=zr+14;
+  bl.forEach(q=>{if(q.work&&(!(q.work.pend||q.work.mark)||(nt&&!ins(q.work.x))))q.work=null});
+  {
     G.sl.filter(s=>s.pend).concat(G.tr.filter(t=>t.mark)).forEach(w=>{
-      if(bl.some(q=>q.work===w))return;
+      if(bl.some(q=>q.work===w)||(nt&&!ins(w.x)))return;
       let bq=null,bd=1e9;
       bl.forEach(q=>{if(!q.work){const d=Math.abs(q.x-w.x);if(d<bd){bd=d;bq=q}}});
       if(bq){bq.work=w;bq.wt=0}
     });
   }
   bl.forEach((q,i)=>{q.home=zl+(i+1)/(bl.length+1)*(zr-zl)});
+  [['ham',CX-64],['bow',CX+64]].forEach(([k,sx])=>{
+    let av=G.tools[k]-G.pe.filter(q=>q.goal===k).length;
+    while(av>0){
+      let bq=null,bd=1e9;
+      G.pe.forEach(q=>{if(!q.job&&!q.b&&!q.a&&!q.goal){const d=Math.abs(q.x-sx);if(d<bd){bd=d;bq=q}}});
+      if(!bq)break;bq.goal=k;av--;
+    }
+  });
   const cnt={'-1':0,'1':0};
   G.pe.forEach(q=>{if(q.a&&!q.job)q.k=cnt[q.sd]++});
   G.pe.forEach(q=>{
-    if(q.work){
+    if(q.goal){
+      q.tx=q.goal==='ham'?CX-64:CX+64;
+      if(Math.abs(q.x-q.tx)<4){
+        const k=q.goal;q.goal=null;
+        if(G.tools[k]>0){G.tools[k]--;if(k==='ham')q.b=1;else{q.sd=G.pe.filter(o=>o.a).length%2?1:-1;q.a=1}}
+      }
+    }else if(q.work){
       q.tx=q.work.x;
       if(Math.abs(q.x-q.tx)<4){
         q.wt+=dt;q.hit=1;
@@ -188,7 +196,7 @@ function addPlayer(id){
 }
 function snap(full){
   const si=o=>G.sl.indexOf(o),ti=o=>G.tr.indexOf(o);
-  const d={t:G.t,day:G.day,over:G.over,cen:G.cen,
+  const d={t:G.t,day:G.day,over:G.over,cen:G.cen,tools:G.tools,
     P:G.P.map(p=>({x:p.x,id:p.id,coins:p.coins,face:p.face,mv:p.mv,t:p.t,flash:p.flash,tg:p.tg?{x:p.tg.x,cost:p.tg.cost,ic:p.tg.ic}:null})),
     pe:G.pe.map(q=>({x:q.x,tx:q.tx,f:q.f,m:q.m,a:q.a,b:q.b,job:q.job,hit:q.hit,wt:q.wt,wk:!q.work?null:q.work.t?'s'+si(q.work):'t'+ti(q.work)})),
     vg:G.vg.map(v=>({id:v.id,x:v.x,tx:v.tx})),
