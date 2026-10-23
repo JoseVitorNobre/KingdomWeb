@@ -31,9 +31,11 @@
 const WW = 3200,
   CX = 1600,
   NIGHTS = 8,
-  DAYLEN = 120;
-// X dos acampamentos: um vagabundo nasce em cada um a cada amanhecer.
+  DAYLEN = 160;
+// X dos acampamentos de vagabundos.
+// Cada acampamento começa o jogo cheio (VAGRANTS_PER_CAMP) e ganha 1 vagabundo por amanhecer até voltar ao limite.
 const CAMPS = [CX - 1400, CX - 900, CX + 900, CX + 1400];
+const VAGRANTS_PER_CAMP = 3;
 // Pontos de construção da sede: [distância da sede, tipo, nível da sede exigido].
 const SL = [
   [-110, 'bow', 1],
@@ -107,9 +109,9 @@ function newGame(n) {
       { x: CX - 30, tx: CX - 30, job: 0 },
       { x: CX + 30, tx: CX + 30, job: 0 },
     ],
-    nextId: 4,
+    nextId: 0,
     tools: { ham: 0, bow: 0 },
-    vagrants: CAMPS.map((c, i) => ({ id: i + 1, x: c, tx: c, w: 0, home: c })),
+    vagrants: [],
     greeds: [],
     groundCoins: Array.from({ length: 10 }, (_, i) => ({ x: CX - 36 + i * 8 })),
     effects: [],
@@ -117,6 +119,14 @@ function newGame(n) {
     stumps: [],
     chests: mkChests(),
   };
+  CAMPS.forEach((c) => {
+    for (let i = 0; i < VAGRANTS_PER_CAMP; i++) G.vagrants.push(newVagrant(c, (i - 1) * 24));
+  });
+}
+// Cria um vagabundo no acampamento de posição camp (offset = deslocamento inicial em x).
+function newVagrant(camp, offset = rnd(-30, 30)) {
+  const x = camp + offset;
+  return { id: (G.nextId = (G.nextId || 0) + 1), x, tx: x, w: 0, home: camp };
 }
 
 // 12 árvores comuns + 6 árvores com placa (3 por lado) que viram pontos de muro/torre quando cortadas.
@@ -249,8 +259,8 @@ function update(dt) {
     G.groundCoins.push({ x: CX });
     G.peasants.forEach((q) => G.groundCoins.push({ x: q.x + rnd(-6, 6) }));
     CAMPS.forEach((c) => {
-      if (!G.vagrants.some((v) => v.home === c))
-        G.vagrants.push({ id: (G.nextId = (G.nextId || 0) + 1), x: c, tx: c, w: 0, home: c });
+      if (G.vagrants.filter((v) => v.home === c).length < VAGRANTS_PER_CAMP)
+        G.vagrants.push(newVagrant(c));
     });
     if (G.day > NIGHTS) {
       G.over = 'win';
