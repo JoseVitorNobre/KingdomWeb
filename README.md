@@ -30,6 +30,7 @@ A legenda de todos os campos do estado (`G.players`, `G.peasants`...) está no t
 - **Equilíbrio** (preços, vida dos muros, duração do dia, nº de noites): constantes no topo de `game.js` e `cost`.
 - **Novo item comprável**: adicione um `cand(...)` em `targetFor` (game.js). Ele define posição, custo, o que acontece e o ícone.
 - **Novo inimigo**: no bloco "2. Surgimento dos Greed" crie o objeto com seus campos (vida, velocidade, dano); o comportamento fica no bloco "7. Greed". Para aparecer na tela, desenhe-o em `view` (render.js) e inclua os campos usados no desenho em `snap` (game.js).
+- **Fazendeiros**: constantes `FARM*` e `STANDS` no topo de `game.js`; liberação em `checkFarmUnlock()`; lógica no bloco 5e (`isFarmer`); desenho em `farm()` e `stand()` (render.js).
 - **Nova profissão**: um campo no camponês (como `isBuilder`), uma bancada em `stand`/`targetFor`, a lógica no bloco "5" e o campo em `snap`.
 - **Novo sprite**: crie o mapa de texto em `render.js` (letras = cores da paleta, `.` = transparente) e desenhe com `spr(mapa, paleta, x, altura, espelhar)`.
 - **Dado novo que o cliente precisa ver no online**: adicione em `snap()` (game.js). O que não estiver em `snap` não chega ao navegador dos outros jogadores.

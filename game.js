@@ -11,13 +11,15 @@
  *   G.groundCoins  moedas no chão        G.chests  baús (somem depois de abertos)
  *   G.trees        árvores (mark = marcada p/ cortar; site = ponto de obra escondido)
  *   G.stumps       tocos das árvores cortadas (permanentes)
- *   G.slots        pontos de construção: muros ('wall') e torres ('bow')
- *   G.castle       sede (lvl, hp, max)   G.tools  ferramentas nas bancadas {ham, bow}
+ *   G.slots        pontos de construção: muros ('wall'), torres ('bow') e fazendas ('farm')
+ *   G.castle       sede (lvl, hp, max)   G.tools  ferramentas nas bancadas {ham, bow, farm}
+ *   G.farmStandX   x da bancada do fazendeiro (null até uma muralha ser expandida)
  *   G.effects      efeitos visuais temporários (flechas, poeira)
  *   G.time         relógio: parte inteira = dia, parte decimal = hora do dia
  *
  * CAMPOS DE UM CAMPONÊS (peasant)
- *   isBuilder / isArcher   profissão (ambos falsos = camponês comum)
+ *   isBuilder / isArcher / isFarmer   profissão (todas falsas = camponês comum)
+ *   farm                   fazenda (slot do tipo 'farm') onde o fazendeiro trabalha
  *   job                    1 quando o arqueiro está ocupando uma torre (q.s = torre)
  *   goal                   'ham' ou 'bow' enquanto caminha até a bancada
  *   work                   obra (slot) ou árvore que o construtor está fazendo
@@ -36,6 +38,16 @@ const WW = 3200,
 // Cada acampamento começa o jogo cheio (VAGRANTS_PER_CAMP) e ganha 1 vagabundo por amanhecer até voltar ao limite.
 const CAMPS = [CX - 1400, CX - 900, CX + 900, CX + 1400];
 const VAGRANTS_PER_CAMP = 3;
+// ----- Fazendeiros -----
+// A bancada e as fazendas só aparecem com a sede no nível 2 e uma muralha expandida: ver checkFarmUnlock().
+const FARMC = [4]; // custo de construir uma fazenda (precisa de construtor)
+const FARM_SITES = 3; // quantos terrenos de fazenda surgem, em posições aleatórias perto da sede
+const FARMERS_PER_FARM = 1; // fazendeiros que cabem em cada fazenda
+const FARM_YIELD = 4; // moedas geradas a cada ciclo de trabalho
+const FARM_WORK_TIME = DAYLEN * 0.6; // segundos trabalhados por ciclo (= todas as horas de luz de 1 dia)
+const FARM_STAND_GAP = 30; // distância da bancada do fazendeiro à frente do muro mais interno
+// X das bancadas fixas (ham = construtor, bow = arqueiro). A do fazendeiro é decidida durante o jogo: G.farmStandX.
+const STANDS = { ham: CX - 64, bow: CX + 64 };
 // Pontos de construção da sede: [distância da sede, tipo, nível da sede exigido].
 const SL = [
   [-110, 'bow', 1],
@@ -104,13 +116,14 @@ function newGame(n) {
       ar: null,
       cd: 0,
       side: Math.sign(o),
-    })),
+    })).concat(mkFarms()),
     peasants: [
       { x: CX - 30, tx: CX - 30, job: 0 },
       { x: CX + 30, tx: CX + 30, job: 0 },
     ],
     nextId: 0,
-    tools: { ham: 0, bow: 0 },
+    tools: { ham: 0, bow: 0, farm: 0 },
+    farmStandX: null,
     vagrants: [],
     greeds: [],
     groundCoins: Array.from({ length: 10 }, (_, i) => ({ x: CX - 36 + i * 8 })),
@@ -153,7 +166,43 @@ function mkChests() {
 }
 // Custo do PRÓXIMO nível de um ponto de construção (0 = já está no nível máximo).
 function cost(s) {
-  return s.lvl < 3 ? (s.t === 'bow' ? BOWC : WALLC)[s.lvl] : 0;
+  const table = { wall: WALLC, bow: BOWC, farm: FARMC }[s.t];
+  return s.lvl < table.length ? table[s.lvl] : 0;
+}
+// Fazendas liberadas? Sim depois que a bancada do fazendeiro foi posicionada (checkFarmUnlock).
+function farmUnlocked() {
+  return G.farmStandX != null;
+}
+// X da bancada de uma profissão ('ham', 'bow' ou 'farm'); null se a do fazendeiro ainda não existe.
+function standX(k) {
+  return k === 'farm' ? G.farmStandX : STANDS[k];
+}
+// Muralha expandida = sede nível 2 e, em algum lado, pelo menos 2 muros construídos (a muralha ganhou
+// território novo). A bancada do fazendeiro nasce logo à frente (para fora) do muro mais interno
+// desse lado, dentro da área recém-protegida, e a posição fica fixa depois disso.
+function checkFarmUnlock() {
+  if (G.farmStandX != null || G.castle.lvl < 2) return;
+  for (const side of [-1, 1]) {
+    const walls = G.slots.filter((s) => s.t === 'wall' && s.lvl >= 1 && s.side === side);
+    if (walls.length < 2) continue;
+    const inner = walls.reduce((a, b) => (Math.abs(a.x - CX) < Math.abs(b.x - CX) ? a : b));
+    G.farmStandX = inner.x + side * FARM_STAND_GAP;
+    return;
+  }
+}
+// Sorteia os terrenos de fazenda: entre 150 e 650 da sede, sem encostar em muros/torres nem entre si.
+function mkFarms() {
+  const taken = SL.map(([o]) => CX + o).concat([CX - 250, CX + 250]),
+    farms = [];
+  while (farms.length < FARM_SITES) {
+    const side = Math.random() < 0.5 ? -1 : 1,
+      x = Math.round(CX + side * rnd(150, 650));
+    if (taken.every((t) => Math.abs(t - x) > 40)) {
+      taken.push(x);
+      farms.push({ x, t: 'farm', req: 0, lvl: 0, hp: 0, ar: null, cd: 0, side });
+    }
+  }
+  return farms;
 }
 // Sobe um nível do ponto de construção. Chamado quando o construtor termina a obra.
 function build(s) {
@@ -186,7 +235,7 @@ function targetFor(p) {
     ),
   );
   G.slots.forEach((s) => {
-    if (G.castle.lvl < s.req || s.pend) return;
+    if (G.castle.lvl < s.req || s.pend || (s.t === 'farm' && !farmUnlocked())) return;
     const c = cost(s);
     if (c)
       cand(
@@ -211,7 +260,7 @@ function targetFor(p) {
   });
   if (G.tools.ham < 4)
     cand(
-      CX - 64,
+      STANDS.ham,
       2,
       () => {
         G.tools.ham++;
@@ -220,12 +269,33 @@ function targetFor(p) {
     );
   if (G.tools.bow < 4)
     cand(
-      CX + 64,
+      STANDS.bow,
       2,
       () => {
         G.tools.bow++;
       },
       'arc',
+    );
+  // Melhoria da sede (níveis 1 -> 2 -> 3): paga no centro da sede.
+  if (G.castle.lvl < 3)
+    cand(
+      CX,
+      CENC[G.castle.lvl - 1],
+      () => {
+        G.castle.lvl++;
+        G.castle.max += 8;
+        G.castle.hp = G.castle.max;
+      },
+      'home',
+    );
+  if (G.tools.farm < 4 && farmUnlocked())
+    cand(
+      G.farmStandX,
+      2,
+      () => {
+        G.tools.farm++;
+      },
+      'farm',
     );
   return best;
 }
@@ -247,6 +317,7 @@ function kill(g) {
 function update(dt) {
   // ===== 1. Relógio e amanhecer (novo dia, moedas dos camponeses, novos vagabundos) =====
   G.time += dt / DAYLEN;
+  checkFarmUnlock();
   const pr = G.time % 1,
     nd = Math.floor(G.time);
   // amanhecer
@@ -381,16 +452,15 @@ function update(dt) {
     q.home = zl + ((i + 1) / (bl.length + 1)) * (zr - zl);
   });
   // 5c. Camponeses ociosos vão buscar ferramentas disponíveis nas bancadas (uma reservada por camponês).
-  [
-    ['ham', CX - 64],
-    ['bow', CX + 64],
-  ].forEach(([k, sx]) => {
+  ['ham', 'bow', 'farm'].forEach((k) => {
+    const sx = standX(k);
+    if (sx == null) return;
     let av = G.tools[k] - G.peasants.filter((q) => q.goal === k).length;
     while (av > 0) {
       let bq = null,
         bd = 1e9;
       G.peasants.forEach((q) => {
-        if (!q.job && !q.isBuilder && !q.isArcher && !q.goal) {
+        if (!q.job && !q.isBuilder && !q.isArcher && !q.isFarmer && !q.goal) {
           const d = Math.abs(q.x - sx);
           if (d < bd) {
             bd = d;
@@ -411,13 +481,14 @@ function update(dt) {
   // 5e. Ação de cada camponês: pegar ferramenta > trabalhar > ficar na zona (construtor/arqueiro) > vagar.
   G.peasants.forEach((q) => {
     if (q.goal) {
-      q.tx = q.goal === 'ham' ? CX - 64 : CX + 64;
+      q.tx = standX(q.goal);
       if (Math.abs(q.x - q.tx) < 4) {
         const k = q.goal;
         q.goal = null;
         if (G.tools[k] > 0) {
           G.tools[k]--;
           if (k === 'ham') q.isBuilder = 1;
+          else if (k === 'farm') q.isFarmer = 1;
           else {
             q.archerSide = G.peasants.filter((o) => o.isArcher).length % 2 ? 1 : -1;
             q.isArcher = 1;
@@ -456,6 +527,45 @@ function update(dt) {
           q.hit = 0;
         }
       } else q.hit = 0;
+    } else if (q.isFarmer) {
+      // Fazendeiro: escolhe uma fazenda construída com vaga e trabalha enquanto há luz.
+      // Ao completar FARM_WORK_TIME segundos de trabalho, a fazenda solta FARM_YIELD moedas.
+      if (!q.farm) {
+        let bf = null,
+          bd = 1e9;
+        G.slots.forEach((f) => {
+          if (f.t !== 'farm' || !f.lvl) return;
+          if (G.peasants.filter((o) => o.farm === f).length >= FARMERS_PER_FARM) return;
+          const d = Math.abs(f.x - q.x);
+          if (d < bd) {
+            bd = d;
+            bf = f;
+          }
+        });
+        q.farm = bf;
+      }
+      if (q.farm && !nt) {
+        q.tx = q.farm.x;
+        if (Math.abs(q.x - q.tx) < 4) {
+          q.hit = 1;
+          q.workTime = (q.workTime || 0) + dt;
+          q.farm.prog = q.workTime / FARM_WORK_TIME;
+          if (q.workTime >= FARM_WORK_TIME) {
+            q.workTime = 0;
+            q.farm.prog = 0;
+            for (let i = 0; i < FARM_YIELD; i++) G.groundCoins.push({ x: q.farm.x + rnd(-14, 14) });
+            G.effects.push({ k: 'pop', x: q.farm.x, l: 0.3 });
+          }
+        } else q.hit = 0;
+      } else {
+        // à noite (ou sem fazenda livre) fica dentro da zona protegida
+        q.hit = 0;
+        q.w = (q.w || 0) - dt;
+        if (q.w <= 0) {
+          q.tx = clamp(CX + rnd(-110, 110), zl, zr);
+          q.w = rnd(2, 5);
+        }
+      }
     } else if (q.isBuilder) {
       q.hit = 0;
       q.w = (q.w || 0) - dt;
@@ -625,6 +735,7 @@ function snap(full) {
     over: G.over,
     castle: G.castle,
     tools: G.tools,
+    farmStandX: G.farmStandX,
     players: G.players.map((p) => ({
       x: p.x,
       id: p.id,
@@ -642,6 +753,7 @@ function snap(full) {
       m: q.m,
       isArcher: q.isArcher,
       isBuilder: q.isBuilder,
+      isFarmer: q.isFarmer,
       job: q.job,
       hit: q.hit,
       workTime: q.workTime,
@@ -660,6 +772,7 @@ function snap(full) {
       lvl: s.lvl,
       hp: s.hp,
       pend: s.pend,
+      prog: s.prog,
     }));
     d.trees = G.trees;
     d.stumps = G.stumps;

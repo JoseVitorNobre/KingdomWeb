@@ -97,12 +97,18 @@ const LEGB = ['...l.l....l.l...', '...l.l....l.l...'];
 const BASE = { k: '#1b1410', s: '#e8c9a0', l: '#3a2616' };
 // Paletas por papel (cores de chapéu c e roupa b).
 const ROLE = {
+  frm: { ...BASE, c: '#e0c068', b: '#6b8f3a' },
   vag: { ...BASE, c: '#777', b: '#8a8a8a' },
   pea: { ...BASE, c: '#6b4a2a', b: '#c8a15a' },
   arc: { ...BASE, c: '#2f6b3a', b: '#3f8a4a' },
   bld: { ...BASE, c: '#f2c53d', b: '#d9722b' },
 };
 // Ícones e objetos: arco grande, machado, tijolo, casa, baú.
+// Fazendeiro: espiga de trigo (ícone/placa) e enxada.
+const WHEAT = ['y..y..y', '.y.y.y.', '..yyy..', '...s...', '...s...', '...s...'],
+  WHEATP = { y: '#e0b33c', s: '#7a8a30' };
+const HOE = ['gg.', '.g.', '.b.', '.b.', '.b.', '.b.'],
+  HOEP = { g: '#b8b8c0', b: '#8b5a2b' };
 const BBOW = ['ddd...', '..dd..', '...dw.', '...dw.', '...dw.', '...dw.', '..dd..', 'ddd...'];
 const AXE = ['.gg.', 'ggg.', '.bg.', '.b..', '.b..', '.b..'],
   AXEP = { g: '#c8c8d0', b: '#8b5a2b' };
@@ -121,21 +127,34 @@ function icon(t) {
     bow: [BBOW, BOWP],
     wall: [BRICK, { b: '#b9b6a8' }],
     home: [HOUSE, HOUSEP],
+    farm: [WHEAT, WHEATP],
   }[t.ic];
   if (!I) return;
   B(t.x, 16, 16, 'rgba(0,0,0,.65)', 52);
   spr(I[0], I[1], t.x, 54, false);
 }
-// Placa de ponto de obra vazio: verde com arco (torre) ou cinza com tijolos (muro).
+// Placa de ponto de obra vazio: verde com arco (torre), cinza com tijolos (muro) ou amarela com trigo (fazenda).
 function site(px, k) {
-  const bow = k === 'bow';
+  const bow = k === 'bow',
+    farm = k === 'farm';
   B(px, 1, 16, '#4b3b2a');
-  B(px, 14, 11, bow ? '#2f6b3a' : '#6b6b70', 9);
-  B(px, 12, 9, bow ? '#cfe3b0' : '#d6d3c8', 10);
-  if (bow) spr(BBOW, BOWP, px, 11, false);
+  B(px, 14, 11, farm ? '#a8841f' : bow ? '#2f6b3a' : '#6b6b70', 9);
+  B(px, 12, 9, farm ? '#f0e2a0' : bow ? '#cfe3b0' : '#d6d3c8', 10);
+  if (farm) spr(WHEAT, WHEATP, px, 11, false);
+  else if (bow) spr(BBOW, BOWP, px, 11, false);
   else spr(BRICK, { b: '#8d8d86' }, px, 12, false);
 }
-// Desenha uma pessoa de um papel (vag, pea, arc, bld). mv = andando, T = tempo para a animação.
+// Fazenda construída: terra, cerca e plantação que cresce com o progresso do fazendeiro (s.prog de 0 a 1).
+function farm(s) {
+  const p = s.prog || 0;
+  B(s.x, 28, 3, '#5a3d22');
+  B(s.x - 14, 1, 7, '#6b4e2e');
+  B(s.x + 14, 1, 7, '#6b4e2e');
+  B(s.x, 28, 1, '#6b4e2e', 6);
+  for (let i = 0; i < 6; i++)
+    B(s.x - 12 + i * 5, 2, 1 + Math.floor(p * 6), p > 0.95 ? '#e0b33c' : '#5fae3a', 3);
+}
+// Desenha uma pessoa de um papel (vag, pea, arc, bld, frm). mv = andando, T = tempo para a animação.
 function person(role, px, yo, flip, mv, T) {
   spr(PER, ROLE[role], px, yo + (mv && Math.floor(T * 6) % 2 ? 1 : 0), flip);
 }
@@ -220,7 +239,8 @@ function camp(px, dk, T) {
 }
 // Bancada de profissão. k = tipo (ham/bow), n = ferramentas no estoque (0 a 4).
 function stand(px, k, n) {
-  const bow = k === 'bow';
+  const bow = k === 'bow',
+    farm = k === 'farm';
   B(px, 20, 4, '#6b4e2e');
   B(px, 20, 1, '#8b6b43', 4);
   if (bow) {
@@ -228,6 +248,9 @@ function stand(px, k, n) {
     B(px + 5, 3, 7, '#8b5a2b', 5);
     B(px + 4, 1, 3, '#e8e0c0', 12);
     B(px + 6, 1, 3, '#e8e0c0', 12);
+  } else if (farm) {
+    spr(PER, ROLE.frm, px - 3, 4, false, 0, 2);
+    spr(HOE, HOEP, px + 8, 4, false, 0, 2);
   } else {
     spr(PER, ROLE.bld, px - 3, 4, false, 0, 2);
     spr(HAM, HAMP, px + 8, 4, false, 0, 2);
@@ -235,11 +258,18 @@ function stand(px, k, n) {
   B(px - 10, 2, 27, '#6b4e2e');
   B(px + 10, 2, 27, '#6b4e2e');
   for (let i = 0; i < 10; i++)
-    B(px - 10 + i * 2 + 1, 2, 3, i % 2 ? '#f2e6c4' : bow ? '#3f8a4a' : '#d9722b', 24);
+    B(
+      px - 10 + i * 2 + 1,
+      2,
+      3,
+      i % 2 ? '#f2e6c4' : bow ? '#3f8a4a' : farm ? '#d9b83f' : '#d9722b',
+      24,
+    );
   for (let i = 0; i < 4; i++) {
     B(px - 7 + i * 5, 3, 1, '#2b1d12', 1);
     if (i < n) {
       if (bow) spr(BOW, BOWP, px - 7 + i * 5, 5, false);
+      else if (farm) spr(HOE, HOEP, px - 7 + i * 5, 5, false);
       else spr(HAM, HAMP, px - 7 + i * 5, 5, false);
     }
   }
@@ -333,6 +363,13 @@ function view(vx, vy, vw, vh, p) {
   // slots
   G.slots.forEach((sl) => {
     if (G.castle.lvl < sl.req) return;
+    if (sl.t === 'farm') {
+      if (!farmUnlocked()) return;
+      if (sl.lvl) farm(sl);
+      else if (!sl.pend) site(sl.x, 'farm');
+      if (sl.pend) scaf(sl, T);
+      return;
+    }
     if (sl.t === 'wall') {
       if (sl.lvl) wall(sl);
       else if (!sl.pend) site(sl.x, 'wall');
@@ -343,8 +380,9 @@ function view(vx, vy, vw, vh, p) {
       if (sl.pend) scaf(sl, T);
     }
   });
-  stand(CX - 64, 'ham', G.tools.ham);
-  stand(CX + 64, 'bow', G.tools.bow);
+  stand(STANDS.ham, 'ham', G.tools.ham);
+  stand(STANDS.bow, 'bow', G.tools.bow);
+  if (farmUnlocked()) stand(G.farmStandX, 'farm', G.tools.farm);
   // sede
   const L = G.castle.lvl,
     cw = 22 + L * 8,
@@ -387,6 +425,9 @@ function view(vx, vy, vw, vh, p) {
     if (q.isArcher) {
       person('arc', q.x, onT ? 16 : 0, fl, q.m, T);
       spr(BOW, BOWP, q.x, (onT ? 16 : 0) + 3, fl, fl ? -5 : 5);
+    } else if (q.isFarmer) {
+      person('frm', q.x, 0, fl, q.m, T);
+      spr(HOE, HOEP, q.x, 2 + (q.hit && Math.floor(T * 4) % 2 ? 2 : 0), fl, fl ? -5 : 5);
     } else if (q.isBuilder) {
       person('bld', q.x, 0, fl, q.m, T);
       spr(HAM, HAMP, q.x, 2 + (q.hit && Math.floor(T * 6) % 2 ? 2 : 0), fl, fl ? -5 : 5);
@@ -454,7 +495,7 @@ function view(vx, vy, vw, vh, p) {
   x.fillText(`${p.coins}`, vx + 34, vy + 32);
   x.font = '12px "Courier New",monospace';
   x.fillText(
-    `Construtores ${G.peasants.filter((q) => q.isBuilder).length} · Arqueiros ${G.peasants.filter((q) => q.isArcher).length}`,
+    `Construtores ${G.peasants.filter((q) => q.isBuilder).length} · Arqueiros ${G.peasants.filter((q) => q.isArcher).length} · Fazendeiros ${G.peasants.filter((q) => q.isFarmer).length}`,
     vx + 14,
     vy + 56,
   );
