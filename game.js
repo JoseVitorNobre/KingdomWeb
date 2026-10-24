@@ -193,12 +193,13 @@ function checkFarmUnlock() {
     return;
   }
 }
-// Sorteia os terrenos de fazenda: entre 150 e 650 da sede, sem encostar em muros/torres nem entre si.
+// Sorteia os terrenos de fazenda (visíveis desde o início, o jogador escolhe onde construir): entre 150 e 650 da sede, sem encostar em muros/torres nem entre si.
 function mkFarms() {
   const taken = SL.map(([o]) => CX + o).concat([CX - 250, CX + 250]),
-    farms = [];
+    farms = [],
+    first = Math.random() < 0.5 ? -1 : 1;
   while (farms.length < FARM_SITES) {
-    const side = Math.random() < 0.5 ? -1 : 1,
+    const side = farms.length % 2 ? -first : first, // alterna os lados: sempre há terrenos dos dois lados
       x = Math.round(CX + side * rnd(150, 650));
     if (taken.every((t) => Math.abs(t - x) > 40)) {
       taken.push(x);
@@ -238,7 +239,7 @@ function targetFor(p) {
     ),
   );
   G.slots.forEach((s) => {
-    if (G.castle.lvl < s.req || s.pend || (s.t === 'farm' && !farmUnlocked())) return;
+    if (G.castle.lvl < s.req || s.pend) return;
     const c = cost(s);
     if (c)
       cand(
@@ -433,8 +434,11 @@ function update(dt) {
     zr = wr.length ? Math.max(...wr) - 12 : CX + 150;
   const bl = G.peasants.filter((q) => q.isBuilder);
   const ins = (v) => v >= zl - 14 && v <= zr + 14;
+  // Noite sem nenhum Greed vivo e nenhum por surgir: construtores podem trabalhar até fora das muralhas.
+  const safe = G.greeds.length === 0 && G.greedsLeft === 0;
+  const canWork = (v) => !nt || safe || ins(v);
   bl.forEach((q) => {
-    if (q.work && (!(q.work.pend || q.work.mark) || (nt && !ins(q.work.x)))) q.work = null;
+    if (q.work && (!(q.work.pend || q.work.mark) || !canWork(q.work.x))) q.work = null;
   });
   {
     // 5b. Cada obra pendente / árvore marcada vai para o construtor livre MAIS PRÓXIMO.
@@ -442,7 +446,7 @@ function update(dt) {
       .filter((s) => s.pend)
       .concat(G.trees.filter((t) => t.mark))
       .forEach((w) => {
-        if (bl.some((q) => q.work === w) || (nt && !ins(w.x))) return;
+        if (bl.some((q) => q.work === w) || !canWork(w.x)) return;
         let bq = null,
           bd = 1e9;
         bl.forEach((q) => {

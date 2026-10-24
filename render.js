@@ -365,7 +365,6 @@ function view(vx, vy, vw, vh, p) {
   G.slots.forEach((sl) => {
     if (G.castle.lvl < sl.req) return;
     if (sl.t === 'farm') {
-      if (!farmUnlocked()) return;
       if (sl.lvl) farm(sl);
       else if (!sl.pend) site(sl.x, 'farm');
       if (sl.pend) scaf(sl, T);
