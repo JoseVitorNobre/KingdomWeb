@@ -20,6 +20,7 @@
  * CAMPOS DE UM CAMPONÊS (peasant)
  *   isBuilder / isArcher / isFarmer   profissão (todas falsas = camponês comum)
  *   farm                   fazenda (slot do tipo 'farm') onde o fazendeiro trabalha
+ *   farmDays               amanheceres já passados na fazenda (rende a partir de 1)
  *   job                    1 quando o arqueiro está ocupando uma torre (q.s = torre)
  *   goal                   'ham' ou 'bow' enquanto caminha até a bancada
  *   work                   obra (slot) ou árvore que o construtor está fazendo
@@ -42,9 +43,11 @@ const VAGRANTS_PER_CAMP = 3;
 // A bancada e as fazendas só aparecem com a sede no nível 2 e uma muralha expandida: ver checkFarmUnlock().
 const FARMC = [4]; // custo de construir uma fazenda (precisa de construtor)
 const FARM_SITES = 3; // quantos terrenos de fazenda surgem, em posições aleatórias perto da sede
-const FARMERS_PER_FARM = 1; // fazendeiros que cabem em cada fazenda
-const FARM_YIELD = 4; // moedas geradas a cada ciclo de trabalho
-const FARM_WORK_TIME = DAYLEN * 0.6; // segundos trabalhados por ciclo (= todas as horas de luz de 1 dia)
+const FARMERS_PER_FARM = 8; // fazendeiros que cabem em cada fazenda
+const FARM_YIELD = 3; // moedas que CADA fazendeiro gera por amanhecer (soltas na fazenda)
+// Um fazendeiro só rende depois de passar 1 amanhecer inteiro na fazenda, ou seja, a partir do 2º dia.
+// Preço da ferramenta de cada bancada (a ferramenta vira a profissão quando um camponês a pega).
+const TOOL_COST = { ham: 3, bow: 2, farm: 4 };
 const FARM_STAND_GAP = 30; // distância da bancada do fazendeiro à frente do muro mais interno
 // X das bancadas fixas (ham = construtor, bow = arqueiro). A do fazendeiro é decidida durante o jogo: G.farmStandX.
 const STANDS = { ham: CX - 64, bow: CX + 64 };
@@ -261,7 +264,7 @@ function targetFor(p) {
   if (G.tools.ham < 4)
     cand(
       STANDS.ham,
-      2,
+      TOOL_COST.ham,
       () => {
         G.tools.ham++;
       },
@@ -270,7 +273,7 @@ function targetFor(p) {
   if (G.tools.bow < 4)
     cand(
       STANDS.bow,
-      2,
+      TOOL_COST.bow,
       () => {
         G.tools.bow++;
       },
@@ -291,7 +294,7 @@ function targetFor(p) {
   if (G.tools.farm < 4 && farmUnlocked())
     cand(
       G.farmStandX,
-      2,
+      TOOL_COST.farm,
       () => {
         G.tools.farm++;
       },
@@ -329,6 +332,15 @@ function update(dt) {
     G.greeds = [];
     G.groundCoins.push({ x: CX });
     G.peasants.forEach((q) => G.groundCoins.push({ x: q.x + rnd(-6, 6) }));
+    // Fazendeiros: 1º amanhecer na fazenda = só aprende o serviço; a partir do 2º, rende FARM_YIELD moedas cada.
+    G.peasants.forEach((q) => {
+      if (!q.isFarmer || !q.farm) return;
+      if (q.farmDays >= 1) {
+        for (let i = 0; i < FARM_YIELD; i++) G.groundCoins.push({ x: q.farm.x + rnd(-14, 14) });
+        G.effects.push({ k: 'pop', x: q.farm.x, l: 0.3 });
+      }
+      q.farmDays = (q.farmDays || 0) + 1;
+    });
     CAMPS.forEach((c) => {
       if (G.vagrants.filter((v) => v.home === c).length < VAGRANTS_PER_CAMP)
         G.vagrants.push(newVagrant(c));
@@ -528,8 +540,9 @@ function update(dt) {
         }
       } else q.hit = 0;
     } else if (q.isFarmer) {
-      // Fazendeiro: escolhe uma fazenda construída com vaga e trabalha enquanto há luz.
-      // Ao completar FARM_WORK_TIME segundos de trabalho, a fazenda solta FARM_YIELD moedas.
+      // Fazendeiro: escolhe uma fazenda construída com vaga (até FARMERS_PER_FARM por fazenda) e fica nela.
+      // De dia trabalha sempre; à noite só continua se a fazenda estiver dentro das muralhas.
+      // O pagamento acontece no amanhecer (bloco 1).
       if (!q.farm) {
         let bf = null,
           bd = 1e9;
@@ -543,22 +556,15 @@ function update(dt) {
           }
         });
         q.farm = bf;
+        q.farmDays = 0;
       }
-      if (q.farm && !nt) {
-        q.tx = q.farm.x;
-        if (Math.abs(q.x - q.tx) < 4) {
-          q.hit = 1;
-          q.workTime = (q.workTime || 0) + dt;
-          q.farm.prog = q.workTime / FARM_WORK_TIME;
-          if (q.workTime >= FARM_WORK_TIME) {
-            q.workTime = 0;
-            q.farm.prog = 0;
-            for (let i = 0; i < FARM_YIELD; i++) G.groundCoins.push({ x: q.farm.x + rnd(-14, 14) });
-            G.effects.push({ k: 'pop', x: q.farm.x, l: 0.3 });
-          }
-        } else q.hit = 0;
+      if (q.farm && (!nt || ins(q.farm.x))) {
+        // os fazendeiros da mesma fazenda se espalham pelo terreno
+        const mates = G.peasants.filter((o) => o.farm === q.farm);
+        q.tx = q.farm.x + (mates.indexOf(q) - (mates.length - 1) / 2) * 3;
+        q.hit = Math.abs(q.x - q.tx) < 4 ? 1 : 0;
       } else {
-        // à noite (ou sem fazenda livre) fica dentro da zona protegida
+        // à noite com a fazenda fora das muralhas (ou sem fazenda livre): volta para a zona protegida
         q.hit = 0;
         q.w = (q.w || 0) - dt;
         if (q.w <= 0) {
@@ -595,6 +601,9 @@ function update(dt) {
       q.x += Math.sign(d) * Math.min(Math.abs(d), 45 * dt);
       q.f = d < 0;
     }
+  });
+  G.slots.forEach((f) => {
+    if (f.t === 'farm') f.workers = G.peasants.filter((q) => q.farm === f).length;
   });
   // ===== 6. Torres e arqueiros livres atiram nos Greed =====
   G.slots.forEach((s) => {
@@ -772,7 +781,7 @@ function snap(full) {
       lvl: s.lvl,
       hp: s.hp,
       pend: s.pend,
-      prog: s.prog,
+      workers: s.workers,
     }));
     d.trees = G.trees;
     d.stumps = G.stumps;

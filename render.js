@@ -144,9 +144,10 @@ function site(px, k) {
   else if (bow) spr(BBOW, BOWP, px, 11, false);
   else spr(BRICK, { b: '#8d8d86' }, px, 12, false);
 }
-// Fazenda construída: terra, cerca e plantação que cresce com o progresso do fazendeiro (s.prog de 0 a 1).
+// Fazenda construída: terra, cerca e plantação. Com fazendeiros presentes (s.workers) a plantação cresce
+// ao longo do dia e fica dourada ao fim da tarde.
 function farm(s) {
-  const p = s.prog || 0;
+  const p = s.workers ? Math.min(1, (G.time % 1) / 0.6) : 0;
   B(s.x, 28, 3, '#5a3d22');
   B(s.x - 14, 1, 7, '#6b4e2e');
   B(s.x + 14, 1, 7, '#6b4e2e');
