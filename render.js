@@ -459,13 +459,10 @@ function view(vx, vy, vw, vh, p) {
     if (q.flash > 0 && Math.floor(q.flash * 14) % 2) B(q.x, 3, 3, '#e33', 20);
   });
   G.effects.forEach((f) => {
-    if (f.k === 'arrow') {
-      x.strokeStyle = '#ffe9a0';
-      x.lineWidth = 1;
-      x.beginPath();
-      x.moveTo(f.x, gy - f.y);
-      x.lineTo(f.x2, gy - f.y2);
-      x.stroke();
+    if (f.k === 'dust') {
+      // flecha que errou: poeirinha onde ela caiu
+      x.fillStyle = `rgba(190,170,130,${f.l * 2.5})`;
+      x.fillRect(f.x - 2, gy - 3 - (0.3 - f.l) * 6, 4, 2);
     } else if (f.k === 'pop') {
       x.strokeStyle = '#ffd23a';
       x.strokeRect(f.x - 6 + f.l * 10, gy - 14 - f.l * 10, 12 - f.l * 20, 12 - f.l * 20);
@@ -473,6 +470,24 @@ function view(vx, vy, vw, vh, p) {
       x.fillStyle = 'rgba(220,200,255,.7)';
       x.fillRect(f.x - 3, gy - 8 - (0.4 - f.l) * 10, 6, 6);
     }
+  });
+  // flechas em voo: posição na parábola (ou reta, se peak = 0), com um rastro curto
+  G.arrows.forEach((a) => {
+    const at = (u) => ({
+      x: a.x0 + (a.x1 - a.x0) * u,
+      y: a.y0 + (a.y1 - a.y0) * u + 4 * a.peak * u * (1 - u),
+    });
+    const u = Math.min(1, a.t / a.T),
+      head = at(u),
+      tail = at(Math.max(0, u - 0.07));
+    x.strokeStyle = '#ffe9a0';
+    x.lineWidth = 1;
+    x.beginPath();
+    x.moveTo(tail.x, gy - tail.y);
+    x.lineTo(head.x, gy - head.y);
+    x.stroke();
+    x.fillStyle = '#fff';
+    x.fillRect(head.x - 0.5, gy - head.y - 0.5, 1.5, 1.5);
   });
   if (p.target) {
     icon(p.target);

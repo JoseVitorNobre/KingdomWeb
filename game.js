@@ -14,7 +14,8 @@
  *   G.slots        pontos de construção: muros ('wall'), torres ('bow') e fazendas ('farm')
  *   G.castle       sede (lvl, hp, max)   G.tools  ferramentas nas bancadas {ham, bow, farm}
  *   G.farmStandX   x da bancada do fazendeiro (null até uma muralha ser expandida)
- *   G.effects      efeitos visuais temporários (flechas, poeira)
+ *   G.effects      efeitos visuais temporários (poeira, brilho de compra)
+ *   G.arrows       flechas em voo: saem em linha reta (visão livre) ou em parábola (muro no caminho)
  *   G.time         relógio: parte inteira = dia, parte decimal = hora do dia
  *
  * CAMPOS DE UM CAMPONÊS (peasant)
@@ -48,6 +49,11 @@ const FARM_YIELD = 3; // moedas que CADA fazendeiro gera por amanhecer (soltas n
 // Um fazendeiro só rende depois de passar 1 amanhecer inteiro na fazenda, ou seja, a partir do 2º dia.
 // Preço da ferramenta de cada bancada (a ferramenta vira a profissão quando um camponês a pega).
 const TOOL_COST = { ham: 3, bow: 2, farm: 4 };
+// ----- Flechas -----
+// Alturas (px acima do chão) de onde a flecha sai e onde atinge. Usadas na linha de visão (clearShot).
+const ARROW_TOWER_H = 22; // arqueiro na plataforma da torre
+const ARROW_GROUND_H = 8; // arqueiro no chão
+const ARROW_TARGET_H = 4; // corpo do Greed
 const FARM_STAND_GAP = 30; // distância da bancada do fazendeiro à frente do muro mais interno
 // X das bancadas fixas (ham = construtor, bow = arqueiro). A do fazendeiro é decidida durante o jogo: G.farmStandX.
 const STANDS = { ham: CX - 64, bow: CX + 64 };
@@ -131,6 +137,7 @@ function newGame(n) {
     greeds: [],
     groundCoins: Array.from({ length: 10 }, (_, i) => ({ x: CX - 36 + i * 8 })),
     effects: [],
+    arrows: [],
     trees: mkTrees(),
     stumps: [],
     chests: mkChests(),
@@ -310,6 +317,62 @@ function dark() {
   return p < 0.55 ? 0 : p < 0.65 ? (p - 0.55) / 0.1 : p < 0.92 ? 1 : 1 - (p - 0.92) / 0.08;
 }
 
+// Altura (px) de um muro construído de nível lvl. Igual à usada no desenho.
+function wallHeight(lvl) {
+  return 10 + lvl * 5;
+}
+// Linha de visão: a reta de (ax, ha) até (tx, th) passa por cima de TODOS os muros entre os dois?
+function clearShot(ax, ha, tx, th) {
+  return !G.slots.some((w) => {
+    if (w.t !== 'wall' || !w.lvl || w.hp <= 0) return false;
+    if ((w.x - ax) * (w.x - tx) >= 0) return false; // este muro não está entre o arqueiro e o alvo
+    const lineY = ha + ((th - ha) * (w.x - ax)) / (tx - ax);
+    return lineY < wallHeight(w.lvl);
+  });
+}
+// Dispara uma flecha de q (saindo da altura ha) contra o Greed target.
+//  - Linha de visão livre: tiro RETO, rápido e preciso (torres costumam conseguir).
+//  - Muro no caminho: tiro em PARÁBOLA, passa por cima do muro, mas é mais lento e pode errar.
+// O acerto é decidido na chegada (updateArrows): vale o Greed que estiver no ponto de queda.
+function fireArrow(q, target, ha) {
+  const dist = Math.abs(target.x - q.x);
+  const direct = clearShot(q.x, ha, target.x, ARROW_TARGET_H);
+  const T = direct ? dist / 900 + 0.05 : 0.35 + dist / 700; // tempo de voo (s)
+  const lead = target.mv ? -target.side * target.sp * T : 0; // mira à frente de um alvo em movimento
+  const spread = direct ? 1 + dist * 0.01 : 4 + dist * 0.07; // erro máximo em px (cresce com a distância)
+  const err = ((rnd(-1, 1) + rnd(-1, 1)) / 2) * spread; // erros pequenos são mais comuns
+  G.arrows.push({
+    x0: q.x,
+    y0: ha,
+    x1: target.x + lead + err,
+    y1: ARROW_TARGET_H,
+    t: 0,
+    T,
+    peak: direct ? 0 : 18 + dist * 0.12, // altura extra do arco
+  });
+}
+// Avança as flechas em voo; na chegada acerta o Greed mais próximo do ponto de queda ou erra.
+function updateArrows(dt) {
+  G.arrows = G.arrows.filter((a) => {
+    a.t += dt;
+    if (a.t < a.T) return true;
+    let hit = null,
+      bd = 1e9;
+    G.greeds.forEach((g) => {
+      const d = Math.abs(g.x - a.x1);
+      if (!g.fl && d < g.w / 2 + 3 && d < bd) {
+        bd = d;
+        hit = g;
+      }
+    });
+    if (hit) {
+      hit.hp--;
+      G.effects.push({ k: 'puff', x: a.x1, l: 0.4 });
+      if (hit.hp <= 0) kill(hit);
+    } else G.effects.push({ k: 'dust', x: a.x1, l: 0.3 });
+    return false;
+  });
+}
 // Remove um Greed morto; 50% de chance de soltar uma moeda.
 function kill(g) {
   G.greeds.splice(G.greeds.indexOf(g), 1);
@@ -644,11 +707,9 @@ function update(dt) {
         }
       });
       if (t) {
-        t.hp--;
         q.cd = 1.1;
         q.f = t.x < q.x;
-        G.effects.push({ k: 'arrow', x: q.x, y: 22, x2: t.x, y2: 4, l: 0.15 });
-        if (t.hp <= 0) kill(t);
+        fireArrow(q, t, ARROW_TOWER_H);
       }
     });
   });
@@ -666,16 +727,17 @@ function update(dt) {
       }
     });
     if (t) {
-      t.hp--;
       q.cd = 1.3;
       q.f = t.x < q.x;
-      G.effects.push({ k: 'arrow', x: q.x, y: 8, x2: t.x, y2: 4, l: 0.15 });
-      if (t.hp <= 0) kill(t);
+      fireArrow(q, t, ARROW_GROUND_H);
     }
   });
+  // ===== 6b. Flechas em voo: acertam ou erram ao chegar =====
+  updateArrows(dt);
   // ===== 7. Greed: andam até a sede, atacam muros/sede e roubam moedas de jogadores =====
   [...G.greeds].forEach((g) => {
     g.t += dt;
+    g.mv = 0; // vira 1 se o Greed andou neste quadro (usado na mira dos arqueiros)
     if (g.fl) {
       g.x -= g.side * 0 + -g.side * 0;
       g.x += g.side * g.sp * 1.5 * dt;
@@ -721,7 +783,10 @@ function update(dt) {
           G.over = 'lose';
         }
       }
-    } else g.x += dir * g.sp * dt;
+    } else {
+      g.x += dir * g.sp * dt;
+      g.mv = 1;
+    }
   });
   G.effects.forEach((f) => (f.l -= dt));
   G.effects = G.effects.filter((f) => f.l > 0);
@@ -776,6 +841,15 @@ function snap(full) {
     greeds: G.greeds.map((g) => ({ id: g.id, x: g.x, fl: g.fl, big: g.big, t: g.t })),
     groundCoins: G.groundCoins,
     effects: G.effects,
+    arrows: G.arrows.map((a) => ({
+      x0: a.x0,
+      y0: a.y0,
+      x1: a.x1,
+      y1: a.y1,
+      t: a.t,
+      T: a.T,
+      peak: a.peak,
+    })),
   };
   if (full) {
     d.slots = G.slots.map((s) => ({
