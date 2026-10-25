@@ -7,6 +7,49 @@
  * view() desenha o mundo para um jogador (céu, cenário, objetos, HUD)
  */
 // Cor da capa de cada jogador (por id).
+// Aparência por estação (índice 0..3 = Primavera, Verão, Outono, Inverno):
+// ground/top = cor do chão e da grama, hill = colinas ao fundo, leaf = folhas das árvores [g, G, g2, G2].
+const SEASON_LOOK = [
+  {
+    ground: [86, 128, 70],
+    top: [120, 160, 84],
+    hill: [
+      [110, 150, 140],
+      [84, 124, 100],
+    ],
+    leaf: ['#3f7a3a', '#2f5f2e', '#6a8a30', '#4f6a22'],
+  },
+  {
+    ground: [112, 142, 58],
+    top: [156, 178, 72],
+    hill: [
+      [120, 156, 110],
+      [96, 136, 80],
+    ],
+    leaf: ['#4f8a2e', '#3a6a22', '#7a9a30', '#5a7a22'],
+  },
+  {
+    ground: [132, 102, 58],
+    top: [176, 134, 62],
+    hill: [
+      [150, 130, 110],
+      [128, 100, 70],
+    ],
+    leaf: ['#c8742a', '#9a4e1a', '#d9a02a', '#a8741a'],
+  },
+  {
+    ground: [208, 216, 224],
+    top: [236, 241, 246],
+    hill: [
+      [190, 205, 220],
+      [160, 180, 200],
+    ],
+    leaf: ['#dfe8ea', '#b8c8cc', '#e8eef0', '#c4d2d6'],
+  },
+];
+// Cores do céu noturno durante a Lua de Sangue.
+const BLOOD_TOP = [60, 6, 14],
+  BLOOD_BOTTOM = [140, 28, 30];
 const CLOAK = ['#3b4a8a', '#8a3b4a', '#3b8a5a', '#8a6b3b', '#6b3b8a', '#3b8a8a'];
 const DT = [111, 179, 210],
   DB = [241, 219, 165],
@@ -147,12 +190,13 @@ function site(px, k) {
 // Fazenda construída: terra, cerca e plantação. Com fazendeiros presentes (s.workers) a plantação cresce
 // ao longo do dia e fica dourada ao fim da tarde.
 function farm(s) {
-  const p = s.workers ? Math.min(1, (G.time % 1) / 0.6) : 0;
-  B(s.x, 28, 3, '#5a3d22');
+  const winter = isWinter(),
+    p = s.workers && !winter ? Math.min(1, (G.time % 1) / 0.6) : 0;
+  B(s.x, 28, 3, winter ? '#eef3f6' : '#5a3d22'); // inverno: terra coberta de neve, sem plantação
   B(s.x - 14, 1, 7, '#6b4e2e');
   B(s.x + 14, 1, 7, '#6b4e2e');
   B(s.x, 28, 1, '#6b4e2e', 6);
-  for (let i = 0; i < 6; i++)
+  for (let i = 0; i < 6 && !winter; i++)
     B(s.x - 12 + i * 5, 2, 1 + Math.floor(p * 6), p > 0.95 ? '#e0b33c' : '#5fae3a', 3);
 }
 // Desenha uma pessoa de um papel (vag, pea, arc, bld, frm). mv = andando, T = tempo para a animação.
@@ -295,9 +339,11 @@ function view(vx, vy, vw, vh, p) {
   x.clip();
   x.translate(vx, vy);
   x.scale(s, s);
+  const look = SEASON_LOOK[seasonIndex(G.day)],
+    blood = isBloodMoon();
   const g = x.createLinearGradient(0, 0, 0, gy);
-  g.addColorStop(0, rgb(mix(DT, NT, dk)));
-  g.addColorStop(1, rgb(mix(DB, NB, dk)));
+  g.addColorStop(0, rgb(mix(DT, blood ? BLOOD_TOP : NT, dk)));
+  g.addColorStop(1, rgb(mix(DB, blood ? BLOOD_BOTTOM : NB, dk)));
   x.fillStyle = g;
   x.fillRect(0, 0, vws, vhs);
   if (dk > 0.3) {
@@ -306,12 +352,12 @@ function view(vx, vy, vw, vh, p) {
   }
   const night = pr >= 0.6,
     fr = night ? (pr - 0.6) / 0.4 : pr / 0.6;
-  x.fillStyle = night ? '#e6e8f5' : '#ffe27a';
-  const bs = night ? 6 : 9;
+  x.fillStyle = night ? (blood ? '#d9302a' : '#e6e8f5') : '#ffe27a';
+  const bs = night ? (blood ? 10 : 6) : 9;
   x.fillRect(vws * (0.08 + 0.84 * fr), gy * 0.7 - Math.sin(fr * Math.PI) * gy * 0.55, bs, bs);
   for (const [f, c1, c2, amp, base] of [
-    [0.25, [110, 150, 140], [16, 20, 40], 14, 40],
-    [0.5, [84, 124, 100], [12, 16, 32], 18, 26],
+    [0.25, look.hill[0], [16, 20, 40], 14, 40],
+    [0.5, look.hill[1], [12, 16, 32], 18, 26],
   ]) {
     x.fillStyle = rgb(mix(c1, c2, dk));
     for (let i = 0; i < vws; i += 2) {
@@ -321,9 +367,9 @@ function view(vx, vy, vw, vh, p) {
     }
   }
   x.translate(-cam, 0);
-  x.fillStyle = rgb(mix([86, 128, 70], [22, 34, 38], dk));
+  x.fillStyle = rgb(mix(look.ground, [22, 34, 38], dk));
   x.fillRect(cam, gy, vws, vhs - gy);
-  x.fillStyle = rgb(mix([120, 160, 84], [40, 58, 56], dk));
+  x.fillStyle = rgb(mix(look.top, [40, 58, 56], dk));
   x.fillRect(cam, gy, vws, 2);
   [60, WW - 60].forEach((px) => {
     if (px < cam - 30 || px > cam + vws + 30) return;
@@ -346,7 +392,7 @@ function view(vx, vy, vw, vh, p) {
       sh = bl ? Math.floor(T * 8) % 2 : 0;
     spr(
       TREE,
-      { g: t.v ? '#6a8a30' : '#3f7a3a', G: t.v ? '#4f6a22' : '#2f5f2e', t: '#6b4a2a' },
+      { g: look.leaf[t.v ? 2 : 0], G: look.leaf[t.v ? 3 : 1], t: '#6b4a2a' },
       t.x + sh,
       0,
       t.v,
@@ -438,7 +484,9 @@ function view(vx, vy, vw, vh, p) {
       sc = e.big ? 2 : 1;
     spr(
       GR,
-      { p: e.fl ? '#a870b8' : e.big ? '#4a1360' : '#7a2a8a', y: '#ffd23a' },
+      blood
+        ? { p: e.fl ? '#c07080' : e.big ? '#6a1020' : '#a02040', y: '#ff5050' }
+        : { p: e.fl ? '#a870b8' : e.big ? '#4a1360' : '#7a2a8a', y: '#ffd23a' },
       e.x,
       bob,
       false,

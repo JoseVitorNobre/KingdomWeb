@@ -31,15 +31,24 @@
  * COMO ADICIONAR COISAS: veja README.md
  */
 // ----- Configuração do mundo (ajuste o equilíbrio aqui) -----
-// WW largura do mundo | CX posição da sede | NIGHTS noites para vencer | DAYLEN segundos de um dia+noite
+// WW largura do mundo | CX posição da sede | NIGHTS dias/noites para vencer | DAYLEN segundos de um dia+noite
 const WW = 3200,
   CX = 1600,
-  NIGHTS = 8,
+  NIGHTS = 32,
   DAYLEN = 160;
 // X dos acampamentos de vagabundos.
 // Cada acampamento começa o jogo cheio (VAGRANTS_PER_CAMP) e ganha 1 vagabundo por amanhecer até voltar ao limite.
 const CAMPS = [CX - 1400, CX - 900, CX + 900, CX + 1400];
 const VAGRANTS_PER_CAMP = 3;
+// ----- Estações e Lua de Sangue -----
+// O jogo é dividido em 4 estações de mesmo tamanho (a última é o inverno): SEASON_LEN dias cada.
+// A última noite de cada estação (a que "troca" a estação) é uma LUA DE SANGUE: Greed mais fortes e rápidos.
+const SEASON_LEN = NIGHTS / 4;
+const SEASON_NAMES = ['Primavera', 'Verão', 'Outono', 'Inverno'];
+const BLOOD_DAMAGE = 2; // multiplicador do dano dos Greed na Lua de Sangue
+const BLOOD_SPEED = 1.5; // multiplicador da velocidade dos Greed na Lua de Sangue
+const MAX_GREEDS_PER_NIGHT = 40; // limite de Greed por noite (com 32 dias o crescimento seria enorme)
+const MAX_GREED_SPEED = 70; // limite da velocidade base dos Greed comuns
 // ----- Fazendeiros -----
 // A bancada e as fazendas só aparecem com a sede no nível 2 e uma muralha expandida: ver checkFarmUnlock().
 const FARMC = [4]; // custo de construir uma fazenda (precisa de construtor)
@@ -54,6 +63,13 @@ const TOOL_COST = { ham: 3, bow: 2, farm: 4 };
 const ARROW_TOWER_H = 22; // arqueiro na plataforma da torre
 const ARROW_GROUND_H = 8; // arqueiro no chão
 const ARROW_TARGET_H = 4; // corpo do Greed
+const ARROW_TOWER_RANGE = 135; // alcance de detecção de um arqueiro na torre (px)
+const ARROW_GROUND_RANGE = 115; // alcance de um arqueiro no chão (px)
+// ----- Ajuda dos construtores -----
+// Construtores ociosos ajudam nas obras e no corte de árvores, mas só quando não há mais nada para fazer. O 1º ajudante dobra a velocidade (HELP_FIRST); cada ajudante seguinte
+// multiplica por um fator HELP_DECAY (25%) menor que o anterior: 2x, 1,5x, 1,125x... (nunca abaixo de 1x).
+const HELP_FIRST = 2;
+const HELP_DECAY = 0.25;
 const FARM_STAND_GAP = 30; // distância da bancada do fazendeiro à frente do muro mais interno
 // X das bancadas fixas (ham = construtor, bow = arqueiro). A do fazendeiro é decidida durante o jogo: G.farmStandX.
 const STANDS = { ham: CX - 64, bow: CX + 64 };
@@ -317,6 +333,37 @@ function dark() {
   return p < 0.55 ? 0 : p < 0.65 ? (p - 0.55) / 0.1 : p < 0.92 ? 1 : 1 - (p - 0.92) / 0.08;
 }
 
+// Índice da estação (0 a 3) de um dia (1 a NIGHTS).
+function seasonIndex(day) {
+  return Math.min(3, Math.floor((day - 1) / SEASON_LEN));
+}
+// Inverno = última estação: nada se cultiva, as fazendas não rendem.
+function isWinter() {
+  return seasonIndex(G.day) === 3;
+}
+// Lua de Sangue: noite do último dia de cada estação (dias 8, 16, 24 e 32 com NIGHTS = 32).
+function isBloodMoon() {
+  return G.day % SEASON_LEN === 0 && G.time % 1 >= 0.6;
+}
+// Multiplicador de velocidade de uma obra com n ajudantes presentes: 0 -> 1x, 1 -> 2x, 2 -> 3x, 3 -> 3,375x...
+function helpBoost(n) {
+  let boost = 1,
+    f = HELP_FIRST;
+  for (let i = 0; i < n && f > 1; i++) {
+    boost *= f;
+    f *= 1 - HELP_DECAY;
+  }
+  return boost;
+}
+// A obra (slot) ou árvore w ainda precisa de trabalho? (árvore cortada sai de G.trees)
+function jobActive(w) {
+  return w.t ? !!w.pend : !!w.mark && G.trees.includes(w);
+}
+// Quantos construtores ajudantes já chegaram perto da obra site.
+function helpersAt(site) {
+  return G.peasants.filter((o) => o.isBuilder && o.helping === site && Math.abs(o.x - site.x) < 16)
+    .length;
+}
 // Altura (px) de um muro construído de nível lvl. Igual à usada no desenho.
 function wallHeight(lvl) {
   return 10 + lvl * 5;
@@ -399,7 +446,7 @@ function update(dt) {
     // Fazendeiros: 1º amanhecer na fazenda = só aprende o serviço; a partir do 2º, rende FARM_YIELD moedas cada.
     G.peasants.forEach((q) => {
       if (!q.isFarmer || !q.farm) return;
-      if (q.farmDays >= 1) {
+      if (q.farmDays >= 1 && !isWinter()) {
         for (let i = 0; i < FARM_YIELD; i++) G.groundCoins.push({ x: q.farm.x + rnd(-14, 14) });
         G.effects.push({ k: 'pop', x: q.farm.x, l: 0.3 });
       }
@@ -417,20 +464,21 @@ function update(dt) {
   // ===== 2. Surgimento dos Greed durante a noite =====
   if (pr >= 0.6 && !G.nightStarted) {
     G.nightStarted = 1;
-    G.greedsLeft = 4 + 3 * G.day;
+    G.greedsLeft = Math.min(MAX_GREEDS_PER_NIGHT, 4 + 3 * G.day);
   }
   if (G.nightStarted && G.greedsLeft > 0) {
     G.spawnTimer -= dt;
     if (G.spawnTimer <= 0) {
       const side = Math.random() < 0.5 ? -1 : 1,
-        big = G.day >= 4 && Math.random() < 0.2;
+        big = G.day >= 4 && Math.random() < 0.2,
+        blood = isBloodMoon();
       G.greeds.push({
         id: (G.nextId = (G.nextId || 0) + 1),
         x: side < 0 ? 70 : WW - 70,
         side,
         hp: big ? 6 : 2,
-        sp: big ? 28 : 38 + G.day * 2,
-        dmg: big ? 2 : 1,
+        sp: (big ? 28 : Math.min(MAX_GREED_SPEED, 38 + G.day * 2)) * (blood ? BLOOD_SPEED : 1),
+        dmg: (big ? 2 : 1) * (blood ? BLOOD_DAMAGE : 1),
         w: big ? 14 : 8,
         big,
         cd: 1,
@@ -524,9 +572,35 @@ function update(dt) {
         if (bq) {
           bq.work = w;
           bq.workTime = 0;
+          bq.helping = null;
         }
       });
   }
+  // 5b2. Construtores ociosos ajudam obras que já têm um construtor principal (ver helpBoost).
+  // Ajudar só vale se não sobrou nada para fazer: obras/árvores sem construtor já foram dadas no bloco 5b
+  // (inclusive aos ajudantes, que contam como livres). Aqui o ajudante também larga a ajuda se a tarefa acabou.
+  bl.forEach((q) => {
+    const h = q.helping;
+    if (h && (q.work || !jobActive(h) || !canWork(h.x) || !bl.some((o) => o.work === h)))
+      q.helping = null;
+  });
+  bl.forEach((q) => {
+    if (q.work || q.helping) return;
+    let bs = null,
+      bd = 1e9;
+    G.slots
+      .filter((s) => s.pend)
+      .concat(G.trees.filter((t) => t.mark))
+      .forEach((s) => {
+        if (!canWork(s.x) || !bl.some((o) => o.work === s)) return;
+        const d = Math.abs(s.x - q.x);
+        if (d < bd) {
+          bd = d;
+          bs = s;
+        }
+      });
+    q.helping = bs;
+  });
   bl.forEach((q, i) => {
     q.home = zl + ((i + 1) / (bl.length + 1)) * (zr - zl);
   });
@@ -577,7 +651,7 @@ function update(dt) {
     } else if (q.work) {
       q.tx = q.work.x;
       if (Math.abs(q.x - q.tx) < 4) {
-        q.workTime += dt;
+        q.workTime += dt * helpBoost(helpersAt(q.work)); // obras e árvores aceleram com ajudantes
         q.hit = 1;
         const w = q.work,
           need = w.t ? 3 + 2 * w.lvl : 3;
@@ -606,6 +680,12 @@ function update(dt) {
           q.hit = 0;
         }
       } else q.hit = 0;
+    } else if (q.isBuilder && q.helping) {
+      // Ajudante: vai até a obra e martela ao lado do construtor principal (acelera a obra).
+      const hs = bl.filter((o) => o.helping === q.helping),
+        idx = hs.indexOf(q);
+      q.tx = q.helping.x + (idx % 2 ? 1 : -1) * (6 + Math.floor(idx / 2) * 6);
+      q.hit = Math.abs(q.x - q.tx) < 4 ? 1 : 0;
     } else if (q.isFarmer) {
       // Fazendeiro: escolhe uma fazenda construída com vaga (até FARMERS_PER_FARM por fazenda) e fica nela.
       // De dia trabalha sempre; à noite só continua se a fazenda estiver dentro das muralhas.
@@ -698,7 +778,7 @@ function update(dt) {
       q.cd = (q.cd || 0) - dt;
       if (q.cd > 0) return;
       let t = null,
-        bd = 270;
+        bd = ARROW_TOWER_RANGE;
       G.greeds.forEach((g) => {
         const d = Math.abs(g.x - q.x);
         if (d < bd && !g.fl) {
@@ -718,7 +798,7 @@ function update(dt) {
     q.cd = (q.cd || 0) - dt;
     if (q.cd > 0) return;
     let t = null,
-      bd = 230;
+      bd = ARROW_GROUND_RANGE;
     G.greeds.forEach((g) => {
       const d = Math.abs(g.x - q.x);
       if (d < bd && !g.fl) {

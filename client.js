@@ -43,9 +43,10 @@ function menu(msg) {
   ov.style.display = 'flex';
   ov.innerHTML = `<h1>DOIS REINOS</h1>${msg ? `<p><b>${msg}</b></p>` : ''}
   <p>Sobreviva a ${NIGHTS} noites. Os Greed saem dos portais à noite e atacam muros e a sede.</p>
+  <p>São 4 estações de ${SEASON_LEN} dias. A última noite de cada estação é uma <b>Lua de Sangue</b>: monstros mais fortes e rápidos. No inverno (última estação) as fazendas não rendem.</p>
   <p><b>A / D</b> ou <b>←/→</b> mover · <b>S</b> ou <b>↓</b> pagar/construir (perto de um alvo)</p>
   <p>Jogador 2: <b>←/→/↓</b>. Tela dividida em cima/baixo.</p>
-  <p>Recrute vagabundos (1 moeda): cada acampamento guarda até 3 e ganha 1 novo a cada amanhecer. Ao lado da sede há duas bancadas com até 4 ferramentas cada: pague para colocar uma ferramenta (martelo 3, arco 2, enxada 4); um camponês ocioso vai até a bancada, pega a ferramenta e vira <b>construtor</b> (martelo, esquerda) ou <b>arqueiro</b> (arco, direita). À noite, construtores só trabalham dentro das muralhas, a menos que todos os monstros da noite já tenham sido mortos. Arqueiros ocupam torres livres; sem torre, guardam atrás do muro mais externo e atiram. Muros (2/4/7) só sobem se um construtor trabalhar neles. Pague 1 em uma árvore para marcá-la: o construtor a derruba (permanente) e ela gera moedas. Árvores com placa liberam um ponto de muro ou de arco ao caírem. Passe sobre baús para abri-los. Torres de arco custam 3/5/8, exigem construtor e cada nível comporta um arqueiro a mais; a sede sobe por 5/9. Terrenos de fazenda (placa amarela, 4 moedas, construtor necessário) estão disponíveis desde o início, em ambos os lados: escolha onde construir. Com a sede no nível 2 e uma muralha expandida (dois muros construídos no mesmo lado), surge a bancada de enxada logo à frente do muro mais interno. As fazendas comportam até 8 fazendeiros; cada um rende 3 moedas por amanhecer a partir do segundo dia, e trabalha à noite se a fazenda estiver dentro das muralhas. Camponeses geram moedas ao amanhecer. Greed que tocam você roubam todas as moedas.</p>
+  <p>Recrute vagabundos (1 moeda): cada acampamento guarda até 3 e ganha 1 novo a cada amanhecer. Ao lado da sede há duas bancadas com até 4 ferramentas cada: pague para colocar uma ferramenta (martelo 3, arco 2, enxada 4); um camponês ocioso vai até a bancada, pega a ferramenta e vira <b>construtor</b> (martelo, esquerda) ou <b>arqueiro</b> (arco, direita). À noite, construtores só trabalham dentro das muralhas, a menos que todos os monstros da noite já tenham sido mortos. Arqueiros ocupam torres livres; sem torre, guardam atrás do muro mais externo e atiram. Muros (2/4/7) só sobem se um construtor trabalhar neles. Construtores ociosos ajudam nas obras e no corte de árvores, mas só se não houver outra tarefa: o 1º ajudante dobra a velocidade e os seguintes ajudam cada vez menos. Pague 1 em uma árvore para marcá-la: o construtor a derruba (permanente) e ela gera moedas. Árvores com placa liberam um ponto de muro ou de arco ao caírem. Passe sobre baús para abri-los. Torres de arco custam 3/5/8, exigem construtor e cada nível comporta um arqueiro a mais; a sede sobe por 5/9. Terrenos de fazenda (placa amarela, 4 moedas, construtor necessário) estão disponíveis desde o início, em ambos os lados: escolha onde construir. Com a sede no nível 2 e uma muralha expandida (dois muros construídos no mesmo lado), surge a bancada de enxada logo à frente do muro mais interno. As fazendas comportam até 8 fazendeiros; cada um rende 3 moedas por amanhecer a partir do segundo dia, e trabalha à noite se a fazenda estiver dentro das muralhas. Camponeses geram moedas ao amanhecer. Greed que tocam você roubam todas as moedas.</p>
   <p>Online: o servidor (<b>node server.js</b>) permite até 6 jogadores no mesmo reino.</p>
   <p>Pressione <b>1</b> (1 jogador), <b>2</b> (2 locais) ou <b>3</b> (online)</p>`;
 }
@@ -185,9 +186,18 @@ function frame(ts) {
     x.textBaseline = 'top';
     x.font = 'bold 18px "Courier New",monospace';
     x.fillStyle = 'rgba(0,0,0,.45)';
-    x.fillRect(W / 2 - 130, 6, 260, 48);
+    const note = isBloodMoon()
+      ? 'LUA DE SANGUE: monstros mais fortes e rápidos'
+      : isWinter()
+        ? 'Inverno: as fazendas não rendem'
+        : '';
+    x.fillRect(W / 2 - 170, 6, 340, note ? 64 : 48);
     x.fillStyle = night ? '#c9b8ff' : '#ffe27a';
-    x.fillText(`${night ? 'Noite' : 'Dia'} ${Math.min(G.day, NIGHTS)}/${NIGHTS}`, W / 2, 10);
+    x.fillText(
+      `${night ? 'Noite' : 'Dia'} ${Math.min(G.day, NIGHTS)}/${NIGHTS} · ${SEASON_NAMES[seasonIndex(G.day)]}`,
+      W / 2,
+      10,
+    );
     x.fillStyle = '#400';
     x.fillRect(W / 2 - 110, 34, 220, 10);
     x.fillStyle = '#d9534f';
@@ -195,6 +205,10 @@ function frame(ts) {
     x.font = '11px "Courier New",monospace';
     x.fillStyle = '#f2e6c4';
     x.fillText(`Sede nv ${G.castle.lvl}`, W / 2, 36);
+    if (note) {
+      x.fillStyle = isBloodMoon() ? '#ff6a6a' : '#bfe3ff';
+      x.fillText(note, W / 2, 50);
+    }
   }
   if (G && G.over) {
     if (online) {
