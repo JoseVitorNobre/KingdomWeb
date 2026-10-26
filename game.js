@@ -7,7 +7,7 @@
  *   G.players      jogadores (monarcas a cavalo): x, coins, input, target...
  *   G.peasants     camponeses e suas profissões (ver abaixo)
  *   G.vagrants     vagabundos nos acampamentos (recrutáveis por 1 moeda)
- *   G.greeds       monstros que saem dos portais à noite
+ *   G.greeds       monstros que saem dos portais à noite (kind: normal, big, flyer, jumper, charger)
  *   G.groundCoins  moedas no chão        G.chests  baús (somem depois de abertos)
  *   G.trees        árvores (mark = marcada p/ cortar; site = ponto de obra escondido)
  *   G.stumps       tocos das árvores cortadas (permanentes)
@@ -42,13 +42,43 @@ const CAMPS = [CX - 1400, CX - 900, CX + 900, CX + 1400];
 const VAGRANTS_PER_CAMP = 3;
 // ----- Estações e Lua de Sangue -----
 // O jogo é dividido em 4 estações de mesmo tamanho (a última é o inverno): SEASON_LEN dias cada.
-// A última noite de cada estação (a que "troca" a estação) é uma LUA DE SANGUE: Greed mais fortes e rápidos.
+// Cada estação tem BLOOD_MOONS_PER_SEASON Luas de Sangue (no meio e no fim dela): Greed mais fortes e rápidos.
+const BLOOD_MOONS_PER_SEASON = 2;
 const SEASON_LEN = NIGHTS / 4;
 const SEASON_NAMES = ['Primavera', 'Verão', 'Outono', 'Inverno'];
 const BLOOD_DAMAGE = 2; // multiplicador do dano dos Greed na Lua de Sangue
 const BLOOD_SPEED = 1.5; // multiplicador da velocidade dos Greed na Lua de Sangue
 const MAX_GREEDS_PER_NIGHT = 40; // limite de Greed por noite (com 32 dias o crescimento seria enorme)
-const MAX_GREED_SPEED = 70; // limite da velocidade base dos Greed comuns
+const MAX_GREED_SPEED = 80; // limite da velocidade base dos Greed (antes do multiplicador da Lua de Sangue)
+// ----- Cavalo: stamina -----
+// Shift = correr (SPRINT_MULT x mais rápido) gastando stamina. Ao zerar, o cavalo fica EXAUSTO: não corre e anda
+// 5% mais devagar até a barra encher por completo. Parado, a stamina recarrega 2x mais rápido.
+const PLAYER_SPEED = 105; // px/s andando
+const SPRINT_MULT = 1.8;
+const STAMINA_MAX = 100;
+const STAMINA_DRAIN = 30; // por segundo correndo (~3,3 s de corrida)
+const STAMINA_REGEN_MOVING = 12; // por segundo andando
+const STAMINA_REGEN_STILL = 24; // por segundo parado (2x)
+const EXHAUSTED_SLOW = 0.95;
+// ----- Monstros: evolução e variações -----
+// A cada TIER_DAYS dias os Greed sobem de nível: +TIER_HP de vida, +TIER_DMG de dano e +TIER_SPEED de velocidade por nível.
+const TIER_DAYS = 4;
+const TIER_HP = 0.35;
+const TIER_DMG = 0.2;
+const TIER_SPEED = 0.06;
+const FLY_HEIGHT = 26; // altura (px) em que os voadores voam: passam por cima dos muros
+const RAM_WINDUP = 2.2; // segundos que o Investidor leva para preparar cada investida contra um muro
+const RAM_MULT = 8; // dano da investida = dano normal x RAM_MULT
+// Tipos de Greed (valores base, antes do nível). from = a partir de qual dia aparece, chance = probabilidade por Greed.
+//  normal: anda e ataca | big: grande e resistente | flyer: voa por cima dos muros
+//  jumper: pula os muros | charger: investida que causa muito dano nos muros
+const GREED_KINDS = {
+  normal: { hp: 2, sp: 38, dmg: 1, w: 8 },
+  big: { hp: 6, sp: 28, dmg: 2, w: 14, from: 4, chance: 0.15 },
+  flyer: { hp: 2, sp: 54, dmg: 1, w: 8, from: 6, chance: 0.15, air: true },
+  jumper: { hp: 3, sp: 44, dmg: 1, w: 8, from: 10, chance: 0.12 },
+  charger: { hp: 5, sp: 32, dmg: 1, w: 12, from: 14, chance: 0.1 },
+};
 // ----- Fazendeiros -----
 // A bancada e as fazendas só aparecem com a sede no nível 2 e uma muralha expandida: ver checkFarmUnlock().
 const FARMC = [4]; // custo de construir uma fazenda (precisa de construtor)
@@ -93,8 +123,8 @@ const WALLHP = [0, 8, 16, 26],
   CENC = [5, 9];
 // Teclas dos jogadores locais (modo tela dividida).
 const K = [
-  { l: 'KeyA', r: 'KeyD', d: 'KeyS' },
-  { l: 'ArrowLeft', r: 'ArrowRight', d: 'ArrowDown' },
+  { l: 'KeyA', r: 'KeyD', d: 'KeyS', s: 'ShiftLeft' },
+  { l: 'ArrowLeft', r: 'ArrowRight', d: 'ArrowDown', s: 'ShiftRight' },
 ];
 // Utilitários
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -109,7 +139,9 @@ function mk(px, i) {
     x: px,
     id: i,
     coins: 6,
-    input: { l: 0, r: 0, d: 0 },
+    input: { l: 0, r: 0, d: 0, s: 0 }, // s = shift (correr)
+    stamina: STAMINA_MAX,
+    exhausted: false,
     face: 1,
     mv: 0,
     t: 0,
@@ -341,9 +373,9 @@ function seasonIndex(day) {
 function isWinter() {
   return seasonIndex(G.day) === 3;
 }
-// Lua de Sangue: noite do último dia de cada estação (dias 8, 16, 24 e 32 com NIGHTS = 32).
+// Lua de Sangue: noite dos dias múltiplos de SEASON_LEN / BLOOD_MOONS_PER_SEASON (4, 8, 12... com 32 dias).
 function isBloodMoon() {
-  return G.day % SEASON_LEN === 0 && G.time % 1 >= 0.6;
+  return G.day % (SEASON_LEN / BLOOD_MOONS_PER_SEASON) === 0 && G.time % 1 >= 0.6;
 }
 // Multiplicador de velocidade de uma obra com n ajudantes presentes: 0 -> 1x, 1 -> 2x, 2 -> 3x, 3 -> 3,375x...
 function helpBoost(n) {
@@ -364,6 +396,46 @@ function helpersAt(site) {
   return G.peasants.filter((o) => o.isBuilder && o.helping === site && Math.abs(o.x - site.x) < 16)
     .length;
 }
+// Atualiza a stamina do cavalo h e devolve a velocidade (px/s) neste quadro.
+// Usada pelo servidor e também pelo cliente (predição), por isso precisa ser idêntica nos dois.
+function horseStep(h, moving, wantSprint, dt) {
+  const sprinting = moving && wantSprint && !h.exhausted && h.stamina > 0;
+  if (sprinting) {
+    h.stamina = Math.max(0, h.stamina - STAMINA_DRAIN * dt);
+    if (h.stamina <= 0) h.exhausted = true; // acabou: só corre de novo com a barra cheia
+  } else {
+    h.stamina = Math.min(
+      STAMINA_MAX,
+      h.stamina + (moving ? STAMINA_REGEN_MOVING : STAMINA_REGEN_STILL) * dt,
+    );
+    if (h.exhausted && h.stamina >= STAMINA_MAX) h.exhausted = false;
+  }
+  return PLAYER_SPEED * (h.exhausted ? EXHAUSTED_SLOW : 1) * (sprinting ? SPRINT_MULT : 1);
+}
+// Nível dos Greed de um dia (0, 1, 2...): sobe a cada TIER_DAYS dias.
+function greedTier(day) {
+  return Math.floor((day - 1) / TIER_DAYS);
+}
+// Sorteia o tipo de um Greed novo conforme o dia (cada tipo tem um dia de estreia e uma chance).
+function pickGreedKind(day) {
+  let roll = Math.random();
+  for (const k of ['charger', 'jumper', 'flyer', 'big']) {
+    const d = GREED_KINDS[k];
+    if (day < d.from) continue;
+    if (roll < d.chance) return k;
+    roll -= d.chance;
+  }
+  return 'normal';
+}
+// Dano em um muro; se a vida acabar o muro cai (volta ao nível 0).
+function hitWall(w, dmg) {
+  w.hp -= dmg;
+  G.effects.push({ k: 'puff', x: w.x, l: 0.2 });
+  if (w.hp <= 0) {
+    w.hp = 0;
+    w.lvl = 0;
+  }
+}
 // Altura (px) de um muro construído de nível lvl. Igual à usada no desenho.
 function wallHeight(lvl) {
   return 10 + lvl * 5;
@@ -383,7 +455,8 @@ function clearShot(ax, ha, tx, th) {
 // O acerto é decidido na chegada (updateArrows): vale o Greed que estiver no ponto de queda.
 function fireArrow(q, target, ha) {
   const dist = Math.abs(target.x - q.x);
-  const direct = clearShot(q.x, ha, target.x, ARROW_TARGET_H);
+  const th = target.air ? FLY_HEIGHT : ARROW_TARGET_H; // altura do alvo (voadores estão no alto)
+  const direct = clearShot(q.x, ha, target.x, th);
   const T = direct ? dist / 900 + 0.05 : 0.35 + dist / 700; // tempo de voo (s)
   const lead = target.mv ? -target.side * target.sp * T : 0; // mira à frente de um alvo em movimento
   const spread = direct ? 1 + dist * 0.01 : 4 + dist * 0.07; // erro máximo em px (cresce com a distância)
@@ -392,7 +465,7 @@ function fireArrow(q, target, ha) {
     x0: q.x,
     y0: ha,
     x1: target.x + lead + err,
-    y1: ARROW_TARGET_H,
+    y1: th,
     t: 0,
     T,
     peak: direct ? 0 : 18 + dist * 0.12, // altura extra do arco
@@ -470,17 +543,25 @@ function update(dt) {
     G.spawnTimer -= dt;
     if (G.spawnTimer <= 0) {
       const side = Math.random() < 0.5 ? -1 : 1,
-        big = G.day >= 4 && Math.random() < 0.2,
+        kind = pickGreedKind(G.day),
+        b = GREED_KINDS[kind],
+        tier = greedTier(G.day),
         blood = isBloodMoon();
       G.greeds.push({
         id: (G.nextId = (G.nextId || 0) + 1),
         x: side < 0 ? 70 : WW - 70,
         side,
-        hp: big ? 6 : 2,
-        sp: (big ? 28 : Math.min(MAX_GREED_SPEED, 38 + G.day * 2)) * (blood ? BLOOD_SPEED : 1),
-        dmg: (big ? 2 : 1) * (blood ? BLOOD_DAMAGE : 1),
-        w: big ? 14 : 8,
-        big,
+        kind,
+        hp: Math.ceil(b.hp * (1 + TIER_HP * tier)),
+        sp: Math.min(MAX_GREED_SPEED, b.sp * (1 + TIER_SPEED * tier)) * (blood ? BLOOD_SPEED : 1),
+        dmg: b.dmg * (1 + TIER_DMG * tier) * (blood ? BLOOD_DAMAGE : 1),
+        w: b.w,
+        big: kind === 'big',
+        air: !!b.air,
+        jumper: kind === 'jumper',
+        charger: kind === 'charger',
+        jy: b.air ? FLY_HEIGHT : 0, // altura atual (voadores e pulos)
+        charge: 0, // progresso (0 a 1) da investida
         cd: 1,
         t: 0,
         fl: 0,
@@ -507,8 +588,9 @@ function update(dt) {
     p.input.d = 0;
     p.mv = (r ? 1 : 0) - (l ? 1 : 0);
     if (p.mv) p.face = p.mv;
-    p.x = clamp(p.x + p.mv * 105 * dt, 60, WW - 60);
-    p.t += p.mv ? dt : 0;
+    const speed = horseStep(p, p.mv !== 0, p.input.s, dt);
+    p.x = clamp(p.x + p.mv * speed * dt, 60, WW - 60);
+    p.t += p.mv ? (dt * speed) / PLAYER_SPEED : 0; // animação mais rápida correndo
     p.flash = Math.max(0, p.flash - dt);
     G.groundCoins = G.groundCoins.filter((c) => {
       if (Math.abs(c.x - p.x) < 12) {
@@ -834,25 +916,53 @@ function update(dt) {
       }
     });
     if (g.fl) return;
-    const blk = G.slots.find(
-      (s) =>
-        s.t === 'wall' &&
-        s.lvl &&
-        s.hp > 0 &&
-        s.side == g.side &&
-        Math.abs(s.x - g.x) < g.w / 2 + 5 &&
-        (s.x - g.x) * dir > -3,
-    );
-    if (blk) {
+    if (g.jump) {
+      // Saltador no ar: voa em arco por cima do muro e depois segue andando.
+      g.jump.t += dt;
+      const u = Math.min(1, g.jump.t / g.jump.T);
+      g.x = g.jump.x0 + (g.jump.x1 - g.jump.x0) * u;
+      g.jy = 4 * g.jump.peak * u * (1 - u);
+      g.mv = 1;
+      if (u >= 1) {
+        g.jump = null;
+        g.jy = 0;
+      }
+      return;
+    }
+    const blk = g.air
+      ? null
+      : G.slots.find(
+          // voadores ignoram os muros
+          (s) =>
+            s.t === 'wall' &&
+            s.lvl &&
+            s.hp > 0 &&
+            s.side == g.side &&
+            Math.abs(s.x - g.x) < g.w / 2 + 5 &&
+            (s.x - g.x) * dir > -3,
+        );
+    if (!blk || !g.charger) g.charge = 0;
+    if (blk && g.jumper) {
+      // Saltador: em vez de atacar, pula o muro (arco mais alto que o muro) e cai do outro lado.
+      g.jump = {
+        t: 0,
+        T: 0.7,
+        x0: g.x,
+        x1: blk.x + dir * (g.w / 2 + 10),
+        peak: wallHeight(blk.lvl) + 8,
+      };
+    } else if (blk && g.charger) {
+      // Investidor: prepara a investida (RAM_WINDUP s, recuando) e então bate com RAM_MULT x o dano.
+      g.charge += dt / RAM_WINDUP;
+      if (g.charge >= 1) {
+        g.charge = 0;
+        hitWall(blk, g.dmg * RAM_MULT);
+      }
+    } else if (blk) {
       g.cd -= dt;
       if (g.cd <= 0) {
         g.cd = 1;
-        blk.hp -= g.dmg;
-        G.effects.push({ k: 'puff', x: blk.x, l: 0.2 });
-        if (blk.hp <= 0) {
-          blk.hp = 0;
-          blk.lvl = 0;
-        }
+        hitWall(blk, g.dmg);
       }
     } else if (Math.abs(g.x - CX) < 24) {
       g.cd -= dt;
@@ -902,6 +1012,8 @@ function snap(full) {
       mv: p.mv,
       t: p.t,
       flash: p.flash,
+      stamina: p.stamina,
+      exhausted: p.exhausted,
       target: p.target ? { x: p.target.x, cost: p.target.cost, ic: p.target.ic } : null,
     })),
     peasants: G.peasants.map((q) => ({
@@ -918,7 +1030,17 @@ function snap(full) {
       wk: !q.work ? null : q.work.t ? 's' + si(q.work) : 't' + ti(q.work),
     })),
     vagrants: G.vagrants.map((v) => ({ id: v.id, x: v.x, tx: v.tx })),
-    greeds: G.greeds.map((g) => ({ id: g.id, x: g.x, fl: g.fl, big: g.big, t: g.t })),
+    greeds: G.greeds.map((g) => ({
+      id: g.id,
+      x: g.x,
+      fl: g.fl,
+      big: g.big,
+      t: g.t,
+      kind: g.kind,
+      side: g.side,
+      jy: g.jy,
+      charge: g.charge,
+    })),
     groundCoins: G.groundCoins,
     effects: G.effects,
     arrows: G.arrows.map((a) => ({

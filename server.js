@@ -46,6 +46,7 @@ wss.on('connection', (ws) => {
       if (q) {
         q.input.l = m.l ? 1 : 0;
         q.input.r = m.r ? 1 : 0;
+        q.input.s = m.s ? 1 : 0;
         if (m.d) q.input.d = 1;
       }
     } catch (e) {}

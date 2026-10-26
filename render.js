@@ -47,6 +47,11 @@ const SEASON_LOOK = [
     leaf: ['#dfe8ea', '#b8c8cc', '#e8eef0', '#c4d2d6'],
   },
 ];
+// Versão noturna de uma cor do cenário: escurece e puxa para o azul, mantendo o matiz da estação
+// (grama verde na primavera vira verde-escuro, neve do inverno vira azul-acinzentado escuro).
+function nightTint(c) {
+  return [Math.round(c[0] * 0.2 + 4), Math.round(c[1] * 0.22 + 6), Math.round(c[2] * 0.3 + 14)];
+}
 // Cores do céu noturno durante a Lua de Sangue.
 const BLOOD_TOP = [60, 6, 14],
   BLOOD_BOTTOM = [140, 28, 30];
@@ -147,6 +152,27 @@ const ROLE = {
   bld: { ...BASE, c: '#f2c53d', b: '#d9722b' },
 };
 // Ícones e objetos: arco grande, machado, tijolo, casa, baú.
+// Greed voador (2 quadros de asa) e investidor (grande, com chifres). Letras: p = corpo, y = olhos.
+const FLY_A = ['pp.....pp', '.ppp.ppp.', '..ppppp..', '..pyppy..', '...p.p...'],
+  FLY_B = ['.........', 'pp.ppp.pp', '.ppppppp.', '..pyppy..', '...p.p...'];
+const CHG = [
+  'p........p',
+  'pp......pp',
+  'pppppppppp',
+  'pppppppppp',
+  'pyppppppyp',
+  'pppppppppp',
+  'pppppppppp',
+  '.pp....pp.',
+  '.pp....pp.',
+];
+const KIND_COLOR = {
+  normal: '#7a2a8a',
+  big: '#4a1360',
+  flyer: '#3a4a9a',
+  jumper: '#2f8a4a',
+  charger: '#8a3a22',
+};
 // Fazendeiro: espiga de trigo (ícone/placa) e enxada.
 const WHEAT = ['y..y..y', '.y.y.y.', '..yyy..', '...s...', '...s...', '...s...'],
   WHEATP = { y: '#e0b33c', s: '#7a8a30' };
@@ -356,8 +382,8 @@ function view(vx, vy, vw, vh, p) {
   const bs = night ? (blood ? 10 : 6) : 9;
   x.fillRect(vws * (0.08 + 0.84 * fr), gy * 0.7 - Math.sin(fr * Math.PI) * gy * 0.55, bs, bs);
   for (const [f, c1, c2, amp, base] of [
-    [0.25, look.hill[0], [16, 20, 40], 14, 40],
-    [0.5, look.hill[1], [12, 16, 32], 18, 26],
+    [0.25, look.hill[0], nightTint(look.hill[0]), 14, 40],
+    [0.5, look.hill[1], nightTint(look.hill[1]), 18, 26],
   ]) {
     x.fillStyle = rgb(mix(c1, c2, dk));
     for (let i = 0; i < vws; i += 2) {
@@ -367,9 +393,9 @@ function view(vx, vy, vw, vh, p) {
     }
   }
   x.translate(-cam, 0);
-  x.fillStyle = rgb(mix(look.ground, [22, 34, 38], dk));
+  x.fillStyle = rgb(mix(look.ground, nightTint(look.ground), dk));
   x.fillRect(cam, gy, vws, vhs - gy);
-  x.fillStyle = rgb(mix(look.top, [40, 58, 56], dk));
+  x.fillStyle = rgb(mix(look.top, nightTint(look.top), dk));
   x.fillRect(cam, gy, vws, 2);
   [60, WW - 60].forEach((px) => {
     if (px < cam - 30 || px > cam + vws + 30) return;
@@ -479,20 +505,18 @@ function view(vx, vy, vw, vh, p) {
       spr(HAM, HAMP, q.x, 2 + (q.hit && Math.floor(T * 6) % 2 ? 2 : 0), fl, fl ? -5 : 5);
     } else person('pea', q.x, 0, fl, q.m, T);
   });
+  // Greed: cor e forma por tipo (kind). jy = altura atual (voadores e saltos); charge = recuo antes da investida.
   G.greeds.forEach((e) => {
-    const bob = Math.abs(Math.sin(e.t * 8)) * 1.5,
-      sc = e.big ? 2 : 1;
-    spr(
-      GR,
-      blood
+    const bob = Math.abs(Math.sin(e.t * (e.kind === 'flyer' ? 14 : 8))) * 1.5,
+      col = e.fl ? '#a870b8' : KIND_COLOR[e.kind] || KIND_COLOR.normal,
+      pal = blood
         ? { p: e.fl ? '#c07080' : e.big ? '#6a1020' : '#a02040', y: '#ff5050' }
-        : { p: e.fl ? '#a870b8' : e.big ? '#4a1360' : '#7a2a8a', y: '#ffd23a' },
-      e.x,
-      bob,
-      false,
-      0,
-      sc,
-    );
+        : { p: col, y: '#ffd23a' };
+    if (e.kind === 'flyer')
+      spr(Math.floor(e.t * 10) % 2 ? FLY_B : FLY_A, pal, e.x, (e.jy || 0) + bob, false);
+    else if (e.kind === 'charger')
+      spr(CHG, pal, e.x + (e.side || 0) * (e.charge || 0) * 6, bob, false);
+    else spr(GR, pal, e.x, (e.jy || 0) + bob, false, 0, e.big ? 2 : 1);
   });
   G.players.forEach((q) => {
     const mvf = Math.floor(q.t * 10) % 2,
@@ -556,11 +580,27 @@ function view(vx, vy, vw, vh, p) {
   x.textBaseline = 'top';
   x.textAlign = 'left';
   x.fillText(`${p.coins}`, vx + 34, vy + 32);
+  // barra de stamina do cavalo (Shift corre; piscando em vermelho = exausto)
+  const st = Math.max(
+    0,
+    Math.min(1, (p.stamina === undefined ? STAMINA_MAX : p.stamina) / STAMINA_MAX),
+  );
+  x.fillStyle = 'rgba(0,0,0,.55)';
+  x.fillRect(vx + 14, vy + 52, 92, 8);
+  x.fillStyle = p.exhausted
+    ? Math.floor(performance.now() / 200) % 2
+      ? '#d9534f'
+      : '#8a2e2c'
+    : st < 0.25
+      ? '#e0b33c'
+      : '#7fd35a';
+  x.fillRect(vx + 15, vy + 53, 90 * st, 6);
+  x.fillStyle = '#f2e6c4';
   x.font = '12px "Courier New",monospace';
   x.fillText(
     `Construtores ${G.peasants.filter((q) => q.isBuilder).length} · Arqueiros ${G.peasants.filter((q) => q.isArcher).length} · Fazendeiros ${G.peasants.filter((q) => q.isFarmer).length}`,
     vx + 14,
-    vy + 56,
+    vy + 66,
   );
   x.font = 'bold 18px "Courier New",monospace';
   if (G.numPlayers == 2) x.fillText(`J${p.id + 1}`, vx + 14, vy + 10);
