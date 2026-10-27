@@ -31,11 +31,12 @@
  * COMO ADICIONAR COISAS: veja README.md
  */
 // ----- Configuração do mundo (ajuste o equilíbrio aqui) -----
-// WW largura do mundo | CX posição da sede | NIGHTS dias/noites para vencer | DAYLEN segundos de um dia+noite
+// WW largura do mundo | CX posição da sede | NIGHTS dias/noites para vencer | DAY_LENGTH_* duração do dia+noite (encurta ao longo do jogo)
 const WW = 3200,
   CX = 1600,
   NIGHTS = 32,
-  DAYLEN = 160;
+  DAY_LENGTH_START = 160, // segundos do dia completo (claro + noite) no 1º dia
+  DAY_LENGTH_MIN = 90; // duração mínima, atingida no último dia
 // X dos acampamentos de vagabundos.
 // Cada acampamento começa o jogo cheio (VAGRANTS_PER_CAMP) e ganha 1 vagabundo por amanhecer até voltar ao limite.
 const CAMPS = [CX - 1400, CX - 900, CX + 900, CX + 1400];
@@ -48,12 +49,20 @@ const SEASON_LEN = NIGHTS / 4;
 const SEASON_NAMES = ['Primavera', 'Verão', 'Outono', 'Inverno'];
 const BLOOD_DAMAGE = 2; // multiplicador do dano dos Greed na Lua de Sangue
 const BLOOD_SPEED = 1.5; // multiplicador da velocidade dos Greed na Lua de Sangue
-const MAX_GREEDS_PER_NIGHT = 40; // limite de Greed por noite (com 32 dias o crescimento seria enorme)
-const MAX_GREED_SPEED = 80; // limite da velocidade base dos Greed (antes do multiplicador da Lua de Sangue)
+// Sem limite de monstros por noite. O intervalo entre dois nascimentos cai de SPAWN_INTERVAL_START (dia 1) até
+// SPAWN_INTERVAL_MIN (último dia). Vida e velocidade iniciais já vêm multiplicadas (balanceamento).
+const SPAWN_INTERVAL_START = 0.7;
+const SPAWN_INTERVAL_MIN = 0.05;
+const START_HP_MULT = 2; // vida inicial dos monstros x2
+const START_SPEED_MULT = 1.5 * 0.85; // velocidade inicial dos monstros: x1,5 e depois -15%
+const START_DMG_MULT = 0.85; // dano inicial dos monstros -15%
+const BLOOD_COUNT = 2; // Lua de Sangue: quantidade de monstros x2
+const BLOOD_SPECIAL_CHANCE = 2; // Lua de Sangue: chance dos monstros especiais x2 (só dos já liberados no dia)
+const MAX_GREED_SPEED = 120; // limite da velocidade base dos Greed (antes do multiplicador da Lua de Sangue)
 // ----- Cavalo: stamina -----
 // Shift = correr (SPRINT_MULT x mais rápido) gastando stamina. Ao zerar, o cavalo fica EXAUSTO: não corre e anda
 // 5% mais devagar até a barra encher por completo. Parado, a stamina recarrega 2x mais rápido.
-const PLAYER_SPEED = 105; // px/s andando
+const PLAYER_SPEED = 70; // px/s andando (correndo = x SPRINT_MULT)
 const SPRINT_MULT = 1.8;
 const STAMINA_MAX = 100;
 const STAMINA_DRAIN = 30; // por segundo correndo (~3,3 s de corrida)
@@ -79,11 +88,16 @@ const GREED_KINDS = {
   jumper: { hp: 3, sp: 44, dmg: 1, w: 8, from: 10, chance: 0.12 },
   charger: { hp: 5, sp: 32, dmg: 1, w: 12, from: 14, chance: 0.1 },
 };
+// ----- Tempo de obra -----
+// Segundos para concluir cada nível, com 1 construtor (ajudantes aceleram: ver helpBoost). A sede é instantânea.
+const BUILD_TIME = { wall: [10, 25, 60], bow: [10, 25, 60], farm: [10, 25] };
+const TREE_TIME = 20; // segundos para derrubar uma árvore
+const TREE_COINS = 2; // moedas que uma árvore derrubada solta
 // ----- Fazendeiros -----
 // A bancada e as fazendas só aparecem com a sede no nível 2 e uma muralha expandida: ver checkFarmUnlock().
-const FARMC = [4]; // custo de construir uma fazenda (precisa de construtor)
+const FARMC = [4, 8]; // custo da fazenda (nível 1) e da melhoria para o nível 2 (precisam de construtor)
+const FARM_CAPACITY = [0, 8, 12]; // fazendeiros que cabem na fazenda, por nível dela
 const FARM_SITES = 3; // quantos terrenos de fazenda surgem, em posições aleatórias perto da sede
-const FARMERS_PER_FARM = 8; // fazendeiros que cabem em cada fazenda
 const FARM_YIELD = 3; // moedas que CADA fazendeiro gera por amanhecer (soltas na fazenda)
 // Um fazendeiro só rende depois de passar 1 amanhecer inteiro na fazenda, ou seja, a partir do 2º dia.
 // Preço da ferramenta de cada bancada (a ferramenta vira a profissão quando um camponês a pega).
@@ -95,6 +109,15 @@ const ARROW_GROUND_H = 8; // arqueiro no chão
 const ARROW_TARGET_H = 4; // corpo do Greed
 const ARROW_TOWER_RANGE = 135; // alcance de detecção de um arqueiro na torre (px)
 const ARROW_GROUND_RANGE = 115; // alcance de um arqueiro no chão (px)
+const ARROW_TOWER_COOLDOWN = 1.8; // segundos entre flechas (torre)
+const ARROW_GROUND_COOLDOWN = 2.0; // segundos entre flechas (chão)
+const ARROW_DAMAGE = 1.25; // dano de cada flecha (antes 1; +25%)
+// ----- Monstros contra pessoas -----
+// Monstros atacam trabalhadores e aldeões contratados (nunca vagabundos). Trabalhador atingido perde a profissão e
+// larga a ferramenta; aldeão atingido derruba a moeda da contratação. O Greed 'normal' rouba o item e foge para o
+// portal (se morrer, o item cai no chão). Os outros tipos só derrubam o item. Quem é atacado fica protegido HURT_TIME s.
+const REACH = 12; // alcance (px) do ataque dos Greed contra pessoas
+const HURT_TIME = 4;
 // ----- Ajuda dos construtores -----
 // Construtores ociosos ajudam nas obras e no corte de árvores, mas só quando não há mais nada para fazer. O 1º ajudante dobra a velocidade (HELP_FIRST); cada ajudante seguinte
 // multiplica por um fator HELP_DECAY (25%) menor que o anterior: 2x, 1,5x, 1,125x... (nunca abaixo de 1x).
@@ -117,7 +140,7 @@ const SL = [
   [640, 'wall', 3],
 ];
 // Vida dos muros por nível | custo de cada nível de muro | de torre | de melhoria da sede.
-const WALLHP = [0, 8, 16, 26],
+const WALLHP = [0, 10, 20, 32.5],
   WALLC = [2, 4, 7],
   BOWC = [3, 5, 8],
   CENC = [5, 9];
@@ -186,6 +209,7 @@ function newGame(n) {
     groundCoins: Array.from({ length: 10 }, (_, i) => ({ x: CX - 36 + i * 8 })),
     effects: [],
     arrows: [],
+    toolDrops: [], // ferramentas caídas no chão: { x, tool }
     trees: mkTrees(),
     stumps: [],
     chests: mkChests(),
@@ -365,6 +389,11 @@ function dark() {
   return p < 0.55 ? 0 : p < 0.65 ? (p - 0.55) / 0.1 : p < 0.92 ? 1 : 1 - (p - 0.92) / 0.08;
 }
 
+// Duração (s) do dia completo em um dia do jogo: diminui linearmente de DAY_LENGTH_START até DAY_LENGTH_MIN.
+function dayLength(day) {
+  const u = Math.min(1, Math.max(0, (day - 1) / (NIGHTS - 1)));
+  return DAY_LENGTH_START + (DAY_LENGTH_MIN - DAY_LENGTH_START) * u;
+}
 // Índice da estação (0 a 3) de um dia (1 a NIGHTS).
 function seasonIndex(day) {
   return Math.min(3, Math.floor((day - 1) / SEASON_LEN));
@@ -373,9 +402,22 @@ function seasonIndex(day) {
 function isWinter() {
   return seasonIndex(G.day) === 3;
 }
-// Lua de Sangue: noite dos dias múltiplos de SEASON_LEN / BLOOD_MOONS_PER_SEASON (4, 8, 12... com 32 dias).
+// O dia d tem Lua de Sangue na sua noite? Dias múltiplos de SEASON_LEN / BLOOD_MOONS_PER_SEASON (4, 8, 12... com 32 dias).
+function isBloodDay(d) {
+  return d >= 1 && d % (SEASON_LEN / BLOOD_MOONS_PER_SEASON) === 0;
+}
+// Lua de Sangue: é noite de um dia de sangue.
 function isBloodMoon() {
-  return G.day % (SEASON_LEN / BLOOD_MOONS_PER_SEASON) === 0 && G.time % 1 >= 0.6;
+  return isBloodDay(G.day) && G.time % 1 >= 0.6;
+}
+// Lua Roxa: a noite seguinte a uma Lua de Sangue. Nenhum monstro nasce e os construtores trabalham livremente.
+function isPurpleMoon() {
+  return isBloodDay(G.day - 1) && G.time % 1 >= 0.6;
+}
+// Intervalo (s) entre dois nascimentos em um dia: cai linearmente de SPAWN_INTERVAL_START até SPAWN_INTERVAL_MIN.
+function spawnInterval(day) {
+  const u = Math.min(1, Math.max(0, (day - 1) / (NIGHTS - 1)));
+  return SPAWN_INTERVAL_START + (SPAWN_INTERVAL_MIN - SPAWN_INTERVAL_START) * u;
 }
 // Multiplicador de velocidade de uma obra com n ajudantes presentes: 0 -> 1x, 1 -> 2x, 2 -> 3x, 3 -> 3,375x...
 function helpBoost(n) {
@@ -417,13 +459,14 @@ function greedTier(day) {
   return Math.floor((day - 1) / TIER_DAYS);
 }
 // Sorteia o tipo de um Greed novo conforme o dia (cada tipo tem um dia de estreia e uma chance).
-function pickGreedKind(day) {
+function pickGreedKind(day, blood) {
   let roll = Math.random();
   for (const k of ['charger', 'jumper', 'flyer', 'big']) {
     const d = GREED_KINDS[k];
     if (day < d.from) continue;
-    if (roll < d.chance) return k;
-    roll -= d.chance;
+    const chance = d.chance * (blood ? BLOOD_SPECIAL_CHANCE : 1);
+    if (roll < chance) return k;
+    roll -= chance;
   }
   return 'normal';
 }
@@ -459,7 +502,7 @@ function fireArrow(q, target, ha) {
   const direct = clearShot(q.x, ha, target.x, th);
   const T = direct ? dist / 900 + 0.05 : 0.35 + dist / 700; // tempo de voo (s)
   const lead = target.mv ? -target.side * target.sp * T : 0; // mira à frente de um alvo em movimento
-  const spread = direct ? 1 + dist * 0.01 : 4 + dist * 0.07; // erro máximo em px (cresce com a distância)
+  const spread = direct ? 1.5 + dist * 0.015 : 5 + dist * 0.09; // erro máximo em px (cresce com a distância)
   const err = ((rnd(-1, 1) + rnd(-1, 1)) / 2) * spread; // erros pequenos são mais comuns
   G.arrows.push({
     x0: q.x,
@@ -486,7 +529,7 @@ function updateArrows(dt) {
       }
     });
     if (hit) {
-      hit.hp--;
+      hit.hp -= ARROW_DAMAGE;
       G.effects.push({ k: 'puff', x: a.x1, l: 0.4 });
       if (hit.hp <= 0) kill(hit);
     } else G.effects.push({ k: 'dust', x: a.x1, l: 0.3 });
@@ -497,13 +540,51 @@ function updateArrows(dt) {
 function kill(g) {
   G.greeds.splice(G.greeds.indexOf(g), 1);
   if (Math.random() < 0.5) G.groundCoins.push({ x: g.x });
+  if (g.loot) dropLoot(g.loot, g.x); // ladrão morto devolve o que roubou
   G.effects.push({ k: 'puff', x: g.x, l: 0.4 });
 }
 
+// Item (moeda ou ferramenta) solto no chão em x.
+function dropLoot(loot, x) {
+  if (loot.type === 'coin') G.groundCoins.push({ x });
+  else G.toolDrops.push({ x, tool: loot.tool });
+}
+// A pessoa q pode ser atacada pelo Greed g? (vagabundos nem entram em G.peasants; arqueiro na torre só sofre com voadores)
+function vulnerable(q, g) {
+  return !(q.hurt > 0) && !(q.job && !g.air);
+}
+// O Greed g ataca a pessoa q. Trabalhador: perde a profissão e larga a ferramenta. Aldeão: derruba a moeda da contratação.
+// O Greed 'normal' fica com o item e foge para o portal; os outros tipos deixam o item cair no chão.
+function hitPerson(g, q) {
+  q.hurt = HURT_TIME;
+  G.effects.push({ k: 'puff', x: q.x, l: 0.3 });
+  const tool = q.isBuilder ? 'ham' : q.isArcher ? 'bow' : q.isFarmer ? 'farm' : null;
+  let loot = null;
+  if (tool) {
+    if (q.job && q.s && q.s.ars) q.s.ars = q.s.ars.filter((o) => o !== q); // sai da torre
+    q.isBuilder = q.isArcher = q.isFarmer = 0;
+    q.job = 0;
+    q.s = null;
+    q.work = null;
+    q.helping = null;
+    q.farm = null;
+    q.goal = null;
+    q.hit = 0;
+    loot = { type: 'tool', tool };
+  } else if (q.hasCoin !== false) {
+    q.hasCoin = false;
+    loot = { type: 'coin' };
+  }
+  if (!loot) return;
+  if (g.kind === 'normal') {
+    g.loot = loot;
+    g.fl = 1;
+  } else dropLoot(loot, q.x);
+}
 // Avança a simulação em dt segundos. Dividido em seções numeradas.
 function update(dt) {
   // ===== 1. Relógio e amanhecer (novo dia, moedas dos camponeses, novos vagabundos) =====
-  G.time += dt / DAYLEN;
+  G.time += dt / dayLength(G.day);
   checkFarmUnlock();
   const pr = G.time % 1,
     nd = Math.floor(G.time);
@@ -514,6 +595,11 @@ function update(dt) {
     G.nightStarted = 0;
     G.greeds.forEach((g) => G.effects.push({ k: 'puff', x: g.x, l: 0.4 }));
     G.greeds = [];
+    // Amanheceu: a sede e todos os muros se recuperam por completo.
+    G.castle.hp = G.castle.max;
+    G.slots.forEach((s) => {
+      if (s.t === 'wall' && s.lvl) s.hp = WALLHP[s.lvl];
+    });
     G.groundCoins.push({ x: CX });
     G.peasants.forEach((q) => G.groundCoins.push({ x: q.x + rnd(-6, 6) }));
     // Fazendeiros: 1º amanhecer na fazenda = só aprende o serviço; a partir do 2º, rende FARM_YIELD moedas cada.
@@ -537,24 +623,27 @@ function update(dt) {
   // ===== 2. Surgimento dos Greed durante a noite =====
   if (pr >= 0.6 && !G.nightStarted) {
     G.nightStarted = 1;
-    G.greedsLeft = Math.min(MAX_GREEDS_PER_NIGHT, 4 + 3 * G.day);
+    // Lua Roxa: ninguém nasce. Lua de Sangue: o dobro de monstros. Sem limite de quantidade.
+    G.greedsLeft = isPurpleMoon() ? 0 : (4 + 3 * G.day) * (isBloodMoon() ? BLOOD_COUNT : 1);
   }
   if (G.nightStarted && G.greedsLeft > 0) {
     G.spawnTimer -= dt;
     if (G.spawnTimer <= 0) {
       const side = Math.random() < 0.5 ? -1 : 1,
-        kind = pickGreedKind(G.day),
+        blood = isBloodMoon(),
+        kind = pickGreedKind(G.day, blood),
         b = GREED_KINDS[kind],
-        tier = greedTier(G.day),
-        blood = isBloodMoon();
+        tier = greedTier(G.day);
       G.greeds.push({
         id: (G.nextId = (G.nextId || 0) + 1),
         x: side < 0 ? 70 : WW - 70,
         side,
         kind,
-        hp: Math.ceil(b.hp * (1 + TIER_HP * tier)),
-        sp: Math.min(MAX_GREED_SPEED, b.sp * (1 + TIER_SPEED * tier)) * (blood ? BLOOD_SPEED : 1),
-        dmg: b.dmg * (1 + TIER_DMG * tier) * (blood ? BLOOD_DAMAGE : 1),
+        hp: Math.ceil(b.hp * START_HP_MULT * (1 + TIER_HP * tier)),
+        sp:
+          Math.min(MAX_GREED_SPEED, b.sp * START_SPEED_MULT * (1 + TIER_SPEED * tier)) *
+          (blood ? BLOOD_SPEED : 1),
+        dmg: b.dmg * START_DMG_MULT * (1 + TIER_DMG * tier) * (blood ? BLOOD_DAMAGE : 1),
         w: b.w,
         big: kind === 'big',
         air: !!b.air,
@@ -567,7 +656,7 @@ function update(dt) {
         fl: 0,
       });
       G.greedsLeft--;
-      G.spawnTimer = Math.max(0.7, 1.6 - 0.07 * G.day);
+      G.spawnTimer = spawnInterval(G.day);
     }
   }
   // ===== 3. Vagabundos andam perto do próprio acampamento =====
@@ -608,6 +697,14 @@ function update(dt) {
       }
       return true;
     });
+    // ferramenta caída: ao passar por cima ela volta para o estoque da bancada
+    G.toolDrops = G.toolDrops.filter((d) => {
+      if (Math.abs(d.x - p.x) < 12 && G.tools[d.tool] < 4) {
+        G.tools[d.tool]++;
+        return false;
+      }
+      return true;
+    });
     p.target = targetFor(p);
     if (dp && p.target) {
       if (p.coins >= p.target.cost) {
@@ -629,7 +726,9 @@ function update(dt) {
   const ins = (v) => v >= zl - 14 && v <= zr + 14;
   // Noite sem nenhum Greed vivo e nenhum por surgir: construtores podem trabalhar até fora das muralhas.
   const safe = G.greeds.length === 0 && G.greedsLeft === 0;
-  const canWork = (v) => !nt || safe || ins(v);
+  // Lado sem nenhuma muralha construída: não há onde se proteger, então os construtores se arriscam e trabalham lá à noite.
+  const undefended = (v) => (v < CX ? wl : wr).length === 0;
+  const canWork = (v) => !nt || safe || ins(v) || undefended(v);
   bl.forEach((q) => {
     if (q.work && (!(q.work.pend || q.work.mark) || !canWork(q.work.x))) q.work = null;
   });
@@ -715,6 +814,7 @@ function update(dt) {
   });
   // 5e. Ação de cada camponês: pegar ferramenta > trabalhar > ficar na zona (construtor/arqueiro) > vagar.
   G.peasants.forEach((q) => {
+    if (q.hurt > 0) q.hurt -= dt;
     if (q.goal) {
       q.tx = standX(q.goal);
       if (Math.abs(q.x - q.tx) < 4) {
@@ -736,7 +836,7 @@ function update(dt) {
         q.workTime += dt * helpBoost(helpersAt(q.work)); // obras e árvores aceleram com ajudantes
         q.hit = 1;
         const w = q.work,
-          need = w.t ? 3 + 2 * w.lvl : 3;
+          need = w.t ? BUILD_TIME[w.t][w.lvl] : TREE_TIME;
         if (q.workTime >= need) {
           if (w.t) {
             w.pend = 0;
@@ -755,7 +855,7 @@ function update(dt) {
                 cd: 0,
                 side: Math.sign(w.x - CX),
               });
-            for (let i = 0; i < 3; i++) G.groundCoins.push({ x: w.x + rnd(-12, 12) });
+            for (let i = 0; i < TREE_COINS; i++) G.groundCoins.push({ x: w.x + rnd(-12, 12) });
             G.effects.push({ k: 'puff', x: w.x, l: 0.4 });
           }
           q.work = null;
@@ -769,7 +869,7 @@ function update(dt) {
       q.tx = q.helping.x + (idx % 2 ? 1 : -1) * (6 + Math.floor(idx / 2) * 6);
       q.hit = Math.abs(q.x - q.tx) < 4 ? 1 : 0;
     } else if (q.isFarmer) {
-      // Fazendeiro: escolhe uma fazenda construída com vaga (até FARMERS_PER_FARM por fazenda) e fica nela.
+      // Fazendeiro: escolhe uma fazenda construída com vaga (até FARM_CAPACITY[nível] por fazenda) e fica nela.
       // De dia trabalha sempre; à noite só continua se a fazenda estiver dentro das muralhas.
       // O pagamento acontece no amanhecer (bloco 1).
       if (!q.farm) {
@@ -777,7 +877,7 @@ function update(dt) {
           bd = 1e9;
         G.slots.forEach((f) => {
           if (f.t !== 'farm' || !f.lvl) return;
-          if (G.peasants.filter((o) => o.farm === f).length >= FARMERS_PER_FARM) return;
+          if (G.peasants.filter((o) => o.farm === f).length >= FARM_CAPACITY[f.lvl]) return;
           const d = Math.abs(f.x - q.x);
           if (d < bd) {
             bd = d;
@@ -869,7 +969,7 @@ function update(dt) {
         }
       });
       if (t) {
-        q.cd = 1.1;
+        q.cd = ARROW_TOWER_COOLDOWN;
         q.f = t.x < q.x;
         fireArrow(q, t, ARROW_TOWER_H);
       }
@@ -889,7 +989,7 @@ function update(dt) {
       }
     });
     if (t) {
-      q.cd = 1.3;
+      q.cd = ARROW_GROUND_COOLDOWN;
       q.f = t.x < q.x;
       fireArrow(q, t, ARROW_GROUND_H);
     }
@@ -929,6 +1029,10 @@ function update(dt) {
       }
       return;
     }
+    // Ataque a pessoas (não a vagabundos): ver hitPerson. O ladrão sai de cena (g.fl) e foge para o portal.
+    const victim = G.peasants.find((q) => Math.abs(q.x - g.x) < REACH && vulnerable(q, g));
+    if (victim) hitPerson(g, victim);
+    if (g.fl) return;
     const blk = g.air
       ? null
       : G.slots.find(
@@ -1024,6 +1128,7 @@ function snap(full) {
       isArcher: q.isArcher,
       isBuilder: q.isBuilder,
       isFarmer: q.isFarmer,
+      hurt: q.hurt > 0 ? 1 : 0,
       job: q.job,
       hit: q.hit,
       workTime: q.workTime,
@@ -1040,9 +1145,11 @@ function snap(full) {
       side: g.side,
       jy: g.jy,
       charge: g.charge,
+      loot: g.loot ? (g.loot.type === 'coin' ? 'coin' : g.loot.tool) : null,
     })),
     groundCoins: G.groundCoins,
     effects: G.effects,
+    toolDrops: G.toolDrops,
     arrows: G.arrows.map((a) => ({
       x0: a.x0,
       y0: a.y0,

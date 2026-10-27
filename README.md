@@ -30,6 +30,8 @@ A legenda de todos os campos do estado (`G.players`, `G.peasants`...) está no t
 - **Equilíbrio** (preços, vida dos muros, duração do dia, nº de noites): constantes no topo de `game.js` e `cost`.
 - **Novo item comprável**: adicione um `cand(...)` em `targetFor` (game.js). Ele define posição, custo, o que acontece e o ícone.
 - **Novo inimigo**: no bloco "2. Surgimento dos Greed" crie o objeto com seus campos (vida, velocidade, dano); o comportamento fica no bloco "7. Greed". Para aparecer na tela, desenhe-o em `view` (render.js) e inclua os campos usados no desenho em `snap` (game.js).
+- **Monstros x pessoas**: `REACH`, `HURT_TIME`, `ARROW_DAMAGE`, `START_*_MULT` no topo de `game.js`; `hitPerson`, `vulnerable`, `dropLoot` (roubo e ferramenta caída); cura no amanhecer no bloco 1.
+- **Tempos e balanceamento**: `BUILD_TIME`, `TREE_*`, `ARROW_*_COOLDOWN`, `SPAWN_INTERVAL_*`, `START_*_MULT`, `BLOOD_*`, `DAY_LENGTH_*` e `FARM_CAPACITY` no topo de `game.js`; Lua Roxa em `isPurpleMoon()`.
 - **Stamina do cavalo**: constantes `STAMINA_*`, `SPRINT_MULT` no topo de `game.js`; função `horseStep` (usada também na predição do cliente).
 - **Monstros**: `GREED_KINDS`, `TIER_*`, `RAM_*` no topo de `game.js`; spawn no bloco 2, comportamento no bloco 7; sprites `FLY_A/FLY_B/CHG` em `render.js`.
 - **Ajuda dos construtores / alcance dos arqueiros**: `HELP_FIRST`, `HELP_DECAY` e `ARROW_*_RANGE` no topo de `game.js`; lógica em `helpBoost` e no bloco 5b2.

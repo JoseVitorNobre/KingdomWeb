@@ -55,6 +55,9 @@ function nightTint(c) {
 // Cores do céu noturno durante a Lua de Sangue.
 const BLOOD_TOP = [60, 6, 14],
   BLOOD_BOTTOM = [140, 28, 30];
+// Cores do céu noturno durante a Lua Roxa (a noite calma depois da Lua de Sangue).
+const PURPLE_TOP = [40, 10, 74],
+  PURPLE_BOTTOM = [112, 52, 146];
 const CLOAK = ['#3b4a8a', '#8a3b4a', '#3b8a5a', '#8a6b3b', '#6b3b8a', '#3b8a8a'];
 const DT = [111, 179, 210],
   DB = [241, 219, 165],
@@ -218,12 +221,21 @@ function site(px, k) {
 function farm(s) {
   const winter = isWinter(),
     p = s.workers && !winter ? Math.min(1, (G.time % 1) / 0.6) : 0;
-  B(s.x, 28, 3, winter ? '#eef3f6' : '#5a3d22'); // inverno: terra coberta de neve, sem plantação
-  B(s.x - 14, 1, 7, '#6b4e2e');
-  B(s.x + 14, 1, 7, '#6b4e2e');
-  B(s.x, 28, 1, '#6b4e2e', 6);
-  for (let i = 0; i < 6 && !winter; i++)
-    B(s.x - 12 + i * 5, 2, 1 + Math.floor(p * 6), p > 0.95 ? '#e0b33c' : '#5fae3a', 3);
+  const wide = s.lvl >= 2, // nível 2: terreno mais largo (cabe 12 fazendeiros)
+    w = wide ? 40 : 28,
+    rows = wide ? 8 : 6;
+  B(s.x, w, 3, winter ? '#eef3f6' : '#5a3d22'); // inverno: terra coberta de neve, sem plantação
+  B(s.x - w / 2, 1, 7, '#6b4e2e');
+  B(s.x + w / 2, 1, 7, '#6b4e2e');
+  B(s.x, w, 1, '#6b4e2e', 6);
+  for (let i = 0; i < rows && !winter; i++)
+    B(
+      s.x - (rows - 1) * 2.5 + i * 5,
+      2,
+      1 + Math.floor(p * 6),
+      p > 0.95 ? '#e0b33c' : '#5fae3a',
+      3,
+    );
 }
 // Desenha uma pessoa de um papel (vag, pea, arc, bld, frm). mv = andando, T = tempo para a animação.
 function person(role, px, yo, flip, mv, T) {
@@ -283,7 +295,7 @@ function scaf(s, T) {
   }
   const bl = G.peasants.find((q) => q.work === s && q.workTime > 0);
   if (bl) {
-    const need = 3 + 2 * s.lvl;
+    const need = BUILD_TIME[s.t][s.lvl];
     B(s.x, 12, 2, '#222', by);
     B(s.x - 6 + (6 * bl.workTime) / need, (12 * bl.workTime) / need, 2, '#7fd35a', by);
   } else spr(HAM, HAMP, s.x, by + 1 + (Math.floor(T * 2) % 2), false);
@@ -358,7 +370,7 @@ function view(vx, vy, vw, vh, p) {
   const cam = Math.round(p.cam),
     dk = dark(),
     pr = G.time % 1,
-    T = G.time * DAYLEN;
+    T = performance.now() / 1000; // relógio real para animações (a duração do dia varia)
   x.save();
   x.beginPath();
   x.rect(vx, vy, vw, vh);
@@ -366,10 +378,11 @@ function view(vx, vy, vw, vh, p) {
   x.translate(vx, vy);
   x.scale(s, s);
   const look = SEASON_LOOK[seasonIndex(G.day)],
-    blood = isBloodMoon();
+    blood = isBloodMoon(),
+    purple = isPurpleMoon();
   const g = x.createLinearGradient(0, 0, 0, gy);
-  g.addColorStop(0, rgb(mix(DT, blood ? BLOOD_TOP : NT, dk)));
-  g.addColorStop(1, rgb(mix(DB, blood ? BLOOD_BOTTOM : NB, dk)));
+  g.addColorStop(0, rgb(mix(DT, blood ? BLOOD_TOP : purple ? PURPLE_TOP : NT, dk)));
+  g.addColorStop(1, rgb(mix(DB, blood ? BLOOD_BOTTOM : purple ? PURPLE_BOTTOM : NB, dk)));
   x.fillStyle = g;
   x.fillRect(0, 0, vws, vhs);
   if (dk > 0.3) {
@@ -378,8 +391,8 @@ function view(vx, vy, vw, vh, p) {
   }
   const night = pr >= 0.6,
     fr = night ? (pr - 0.6) / 0.4 : pr / 0.6;
-  x.fillStyle = night ? (blood ? '#d9302a' : '#e6e8f5') : '#ffe27a';
-  const bs = night ? (blood ? 10 : 6) : 9;
+  x.fillStyle = night ? (blood ? '#d9302a' : purple ? '#b58cff' : '#e6e8f5') : '#ffe27a';
+  const bs = night ? (blood ? 10 : purple ? 8 : 6) : 9;
   x.fillRect(vws * (0.08 + 0.84 * fr), gy * 0.7 - Math.sin(fr * Math.PI) * gy * 0.55, bs, bs);
   for (const [f, c1, c2, amp, base] of [
     [0.25, look.hill[0], nightTint(look.hill[0]), 14, 40],
@@ -430,7 +443,7 @@ function view(vx, vy, vw, vh, p) {
     }
     if (bl) {
       B(t.x, 10, 2, '#222', 20);
-      B(t.x - 5 + (5 * bl.workTime) / 3, (10 * bl.workTime) / 3, 2, '#7fd35a', 20);
+      B(t.x - 5 + (5 * bl.workTime) / TREE_TIME, (10 * bl.workTime) / TREE_TIME, 2, '#7fd35a', 20);
     }
   });
   // slots
@@ -492,6 +505,7 @@ function view(vx, vy, vw, vh, p) {
   // gente
   G.vagrants.forEach((v) => person('vag', v.x, 0, v.tx < v.x, Math.abs(v.tx - v.x) > 1, T));
   G.peasants.forEach((q) => {
+    if (q.hurt) B(q.x, 2, 3, '#e33', 14); // acabou de ser atacado
     const onT = q.job && Math.abs(q.x - q.tx) < 3,
       fl = !!q.f;
     if (q.isArcher) {
@@ -505,6 +519,12 @@ function view(vx, vy, vw, vh, p) {
       spr(HAM, HAMP, q.x, 2 + (q.hit && Math.floor(T * 6) % 2 ? 2 : 0), fl, fl ? -5 : 5);
     } else person('pea', q.x, 0, fl, q.m, T);
   });
+  // ferramentas caídas no chão (voltam à bancada se um jogador passar por cima)
+  G.toolDrops.forEach((d) => {
+    const sprite = d.tool === 'bow' ? BOW : d.tool === 'farm' ? HOE : HAM,
+      pal = d.tool === 'bow' ? BOWP : d.tool === 'farm' ? HOEP : HAMP;
+    spr(sprite, pal, d.x, 2 + Math.abs(Math.sin(T * 4)) * 2, false);
+  });
   // Greed: cor e forma por tipo (kind). jy = altura atual (voadores e saltos); charge = recuo antes da investida.
   G.greeds.forEach((e) => {
     const bob = Math.abs(Math.sin(e.t * (e.kind === 'flyer' ? 14 : 8))) * 1.5,
@@ -517,6 +537,14 @@ function view(vx, vy, vw, vh, p) {
     else if (e.kind === 'charger')
       spr(CHG, pal, e.x + (e.side || 0) * (e.charge || 0) * 6, bob, false);
     else spr(GR, pal, e.x, (e.jy || 0) + bob, false, 0, e.big ? 2 : 1);
+    // item roubado, carregado acima da cabeça
+    if (e.loot) {
+      const top = (e.jy || 0) + (e.big ? 20 : 11);
+      if (e.loot === 'coin') spr(COIN, { y: '#f2c53d', Y: '#fff1a0' }, e.x, top, false);
+      else if (e.loot === 'bow') spr(BOW, BOWP, e.x, top, false);
+      else if (e.loot === 'farm') spr(HOE, HOEP, e.x, top, false);
+      else spr(HAM, HAMP, e.x, top, false);
+    }
   });
   G.players.forEach((q) => {
     const mvf = Math.floor(q.t * 10) % 2,
