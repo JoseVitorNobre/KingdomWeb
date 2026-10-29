@@ -30,6 +30,9 @@ A legenda de todos os campos do estado (`G.players`, `G.peasants`...) está no t
 - **Equilíbrio** (preços, vida dos muros, duração do dia, nº de noites): constantes no topo de `game.js` e `cost`.
 - **Novo item comprável**: adicione um `cand(...)` em `targetFor` (game.js). Ele define posição, custo, o que acontece e o ícone.
 - **Novo inimigo**: no bloco "2. Surgimento dos Greed" crie o objeto com seus campos (vida, velocidade, dano); o comportamento fica no bloco "7. Greed". Para aparecer na tela, desenhe-o em `view` (render.js) e inclua os campos usados no desenho em `snap` (game.js).
+- **Mundo sorteado**: `mkWorld`, `pickSpots`, `BASE_SLOTS` (únicos pontos fixos) e as constantes `*_PER_SIDE`, `COMMON_TREES`, `CHEST_COINS_*` em `game.js`; acampamentos em `G.camps`.
+- **Tiers da sede, lanceiro e catapulta**: `CENC`, `SPEAR_*`, `FISH_*`, `CATA_*`, `DYN*`, `FIRE_*`; `spearStandX`, `cataSpot`, `updateShells` em `game.js`; água da ilha e sprites provisórios (`cata`, `SPEARM`, `ROCK`, `DYN`) em `render.js`.
+- **Torre exposta**: `towerExposed` e `TOWER_FORWARD_MULT` em `game.js`. **Progresso de obras**: `w.progress` (bloco 5b3) e `finishJob`.
 - **Monstros x pessoas**: `REACH`, `HURT_TIME`, `ARROW_DAMAGE`, `START_*_MULT` no topo de `game.js`; `hitPerson`, `vulnerable`, `dropLoot` (roubo e ferramenta caída); cura no amanhecer no bloco 1.
 - **Tempos e balanceamento**: `BUILD_TIME`, `TREE_*`, `ARROW_*_COOLDOWN`, `SPAWN_INTERVAL_*`, `START_*_MULT`, `BLOOD_*`, `DAY_LENGTH_*` e `FARM_CAPACITY` no topo de `game.js`; Lua Roxa em `isPurpleMoon()`.
 - **Stamina do cavalo**: constantes `STAMINA_*`, `SPRINT_MULT` no topo de `game.js`; função `horseStep` (usada também na predição do cliente).

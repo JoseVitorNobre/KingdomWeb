@@ -18,6 +18,7 @@ const SEASON_LOOK = [
       [84, 124, 100],
     ],
     leaf: ['#3f7a3a', '#2f5f2e', '#6a8a30', '#4f6a22'],
+    water: [64, 140, 190],
   },
   {
     ground: [112, 142, 58],
@@ -27,6 +28,7 @@ const SEASON_LOOK = [
       [96, 136, 80],
     ],
     leaf: ['#4f8a2e', '#3a6a22', '#7a9a30', '#5a7a22'],
+    water: [48, 150, 200],
   },
   {
     ground: [132, 102, 58],
@@ -36,6 +38,7 @@ const SEASON_LOOK = [
       [128, 100, 70],
     ],
     leaf: ['#c8742a', '#9a4e1a', '#d9a02a', '#a8741a'],
+    water: [66, 120, 150],
   },
   {
     ground: [208, 216, 224],
@@ -45,6 +48,7 @@ const SEASON_LOOK = [
       [160, 180, 200],
     ],
     leaf: ['#dfe8ea', '#b8c8cc', '#e8eef0', '#c4d2d6'],
+    water: [170, 205, 225],
   },
 ];
 // Versão noturna de uma cor do cenário: escurece e puxa para o azul, mantendo o matiz da estação
@@ -148,6 +152,7 @@ const LEGB = ['...l.l....l.l...', '...l.l....l.l...'];
 const BASE = { k: '#1b1410', s: '#e8c9a0', l: '#3a2616' };
 // Paletas por papel (cores de chapéu c e roupa b).
 const ROLE = {
+  spr: { ...BASE, c: '#b8c0cc', b: '#5a6f94' },
   frm: { ...BASE, c: '#e0c068', b: '#6b8f3a' },
   vag: { ...BASE, c: '#777', b: '#8a8a8a' },
   pea: { ...BASE, c: '#6b4a2a', b: '#c8a15a' },
@@ -176,6 +181,14 @@ const KIND_COLOR = {
   jumper: '#2f8a4a',
   charger: '#8a3a22',
 };
+// Lança (ponta metálica e cabo), rocha (ícone da catapulta) e dinamite (pavio amarelo).
+const SPEARM = ['.g.', 'ggg', '.b.', '.b.', '.b.', '.b.', '.b.', '.b.', '.b.', '.b.'],
+  SPEARDOWN = SPEARM.slice().reverse(),
+  SPEARP = { g: '#cfd6e0', b: '#8b5a2b' };
+const ROCK = ['.rr.', 'rrrr', 'rrrr', '.rr.'],
+  ROCKP = { r: '#8a8a90' };
+const DYN = ['.y.', '.k.', 'rrr', 'rrr', 'rrr', 'rrr'],
+  DYNP = { r: '#d33', y: '#ffd23a', k: '#222' };
 // Fazendeiro: espiga de trigo (ícone/placa) e enxada.
 const WHEAT = ['y..y..y', '.y.y.y.', '..yyy..', '...s...', '...s...', '...s...'],
   WHEATP = { y: '#e0b33c', s: '#7a8a30' };
@@ -200,6 +213,9 @@ function icon(t) {
     wall: [BRICK, { b: '#b9b6a8' }],
     home: [HOUSE, HOUSEP],
     farm: [WHEAT, WHEATP],
+    spear: [SPEARM, SPEARP],
+    cata: [ROCK, ROCKP],
+    dyn: [DYN, DYNP],
   }[t.ic];
   if (!I) return;
   B(t.x, 16, 16, 'rgba(0,0,0,.65)', 52);
@@ -208,13 +224,29 @@ function icon(t) {
 // Placa de ponto de obra vazio: verde com arco (torre), cinza com tijolos (muro) ou amarela com trigo (fazenda).
 function site(px, k) {
   const bow = k === 'bow',
-    farm = k === 'farm';
+    farm = k === 'farm',
+    cata = k === 'cata';
   B(px, 1, 16, '#4b3b2a');
-  B(px, 14, 11, farm ? '#a8841f' : bow ? '#2f6b3a' : '#6b6b70', 9);
-  B(px, 12, 9, farm ? '#f0e2a0' : bow ? '#cfe3b0' : '#d6d3c8', 10);
+  B(px, 14, 11, farm ? '#a8841f' : bow ? '#2f6b3a' : cata ? '#7a5a38' : '#6b6b70', 9);
+  B(px, 12, 9, farm ? '#f0e2a0' : bow ? '#cfe3b0' : cata ? '#d8c9a8' : '#d6d3c8', 10);
   if (farm) spr(WHEAT, WHEATP, px, 11, false);
   else if (bow) spr(BBOW, BOWP, px, 11, false);
+  else if (cata) spr(ROCK, ROCKP, px, 12, false);
   else spr(BRICK, { b: '#8d8d86' }, px, 12, false);
+}
+// Cabana da catapulta (provisório): cabana de madeira com o braço da catapulta virado para fora e as dinamites
+// guardadas à frente. O braço dá um coice quando dispara (s.recoil).
+function cata(s) {
+  const f = s.side,
+    kick = s.recoil > 0 ? 6 : 0;
+  B(s.x, 26, 12, '#7a5a38');
+  B(s.x, 30, 3, '#8a3b2e', 12);
+  B(s.x, 22, 3, '#8a3b2e', 15);
+  B(s.x - f * 6, 6, 8, '#3b2a1c'); // porta (lado da sede)
+  B(s.x + f * 14, 3, 12, '#5a3f24'); // suporte do braço
+  B(s.x + f * (16 + kick / 2), 3, 10, '#8b6b43', 14 + kick); // braço
+  B(s.x + f * (18 + kick), 6, 4, '#8a8a90', 22 + kick); // pedra na concha
+  for (let i = 0; i < Math.min(s.ammo || 0, 6); i++) B(s.x - 10 + i * 4, 3, 6, '#d33', 18); // dinamites guardadas
 }
 // Fazenda construída: terra, cerca e plantação. Com fazendeiros presentes (s.workers) a plantação cresce
 // ao longo do dia e fica dourada ao fim da tarde.
@@ -293,11 +325,11 @@ function scaf(s, T) {
     B(s.x, 11, 1, '#8b6b43', 9);
     B(s.x, 11, 1, '#8b6b43', 3);
   }
-  const bl = G.peasants.find((q) => q.work === s && q.workTime > 0);
-  if (bl) {
-    const need = BUILD_TIME[s.t][s.lvl];
+  const prog = s.progress || 0;
+  if (prog > 0) {
+    const need = jobNeed(s);
     B(s.x, 12, 2, '#222', by);
-    B(s.x - 6 + (6 * bl.workTime) / need, (12 * bl.workTime) / need, 2, '#7fd35a', by);
+    B(s.x - 6 + (6 * prog) / need, (12 * prog) / need, 2, '#7fd35a', by);
   } else spr(HAM, HAMP, s.x, by + 1 + (Math.floor(T * 2) % 2), false);
 }
 // Acampamento de vagabundos (sprite provisório).
@@ -323,7 +355,8 @@ function camp(px, dk, T) {
 // Bancada de profissão. k = tipo (ham/bow), n = ferramentas no estoque (0 a 4).
 function stand(px, k, n) {
   const bow = k === 'bow',
-    farm = k === 'farm';
+    farm = k === 'farm',
+    spear = k === 'spear';
   B(px, 20, 4, '#6b4e2e');
   B(px, 20, 1, '#8b6b43', 4);
   if (bow) {
@@ -334,6 +367,9 @@ function stand(px, k, n) {
   } else if (farm) {
     spr(PER, ROLE.frm, px - 3, 4, false, 0, 2);
     spr(HOE, HOEP, px + 8, 4, false, 0, 2);
+  } else if (spear) {
+    spr(PER, ROLE.spr, px - 3, 4, false, 0, 2);
+    spr(SPEARM, SPEARP, px + 8, 4, false, 0, 2);
   } else {
     spr(PER, ROLE.bld, px - 3, 4, false, 0, 2);
     spr(HAM, HAMP, px + 8, 4, false, 0, 2);
@@ -345,7 +381,7 @@ function stand(px, k, n) {
       px - 10 + i * 2 + 1,
       2,
       3,
-      i % 2 ? '#f2e6c4' : bow ? '#3f8a4a' : farm ? '#d9b83f' : '#d9722b',
+      i % 2 ? '#f2e6c4' : bow ? '#3f8a4a' : farm ? '#d9b83f' : spear ? '#6a7fa0' : '#d9722b',
       24,
     );
   for (let i = 0; i < 4; i++) {
@@ -353,6 +389,7 @@ function stand(px, k, n) {
     if (i < n) {
       if (bow) spr(BOW, BOWP, px - 7 + i * 5, 5, false);
       else if (farm) spr(HOE, HOEP, px - 7 + i * 5, 5, false);
+      else if (spear) spr(SPEARM, SPEARP, px - 7 + i * 5, 5, false);
       else spr(HAM, HAMP, px - 7 + i * 5, 5, false);
     }
   }
@@ -406,10 +443,34 @@ function view(vx, vy, vw, vh, p) {
     }
   }
   x.translate(-cam, 0);
-  x.fillStyle = rgb(mix(look.ground, nightTint(look.ground), dk));
-  x.fillRect(cam, gy, vws, vhs - gy);
-  x.fillStyle = rgb(mix(look.top, nightTint(look.top), dk));
-  x.fillRect(cam, gy, vws, 2);
+  // Ilha cercada de água: embaixo da terra e além das pontas do mapa (x < 24 e x > WW - 24) há água.
+  const shore = 24,
+    landBottom = gy + 7,
+    water = rgb(mix(look.water, nightTint(look.water), dk)),
+    iL = Math.max(cam, shore),
+    iR = Math.min(cam + vws, WW - shore);
+  x.fillStyle = water;
+  x.fillRect(cam, gy, vws, vhs - gy); // tudo água; a terra é desenhada por cima
+  x.fillStyle = `rgba(255,255,255,${0.18 * (1 - dk * 0.6)})`;
+  for (let i = 0; i < vws; i += 14)
+    x.fillRect(cam + i + ((T * 8 + i) % 14), landBottom + 3 + ((i / 14) % 3) * 4, 6, 1); // ondinhas
+  if (iR > iL) {
+    x.fillStyle = rgb(
+      mix(
+        look.ground.map((v) => Math.round(v * 0.8)),
+        nightTint(look.ground),
+        dk,
+      ),
+    );
+    x.fillRect(iL, gy, iR - iL, landBottom - gy); // barranco da ilha
+    x.fillStyle = rgb(mix(look.ground, nightTint(look.ground), dk));
+    x.fillRect(iL, gy, iR - iL, 4);
+    x.fillStyle = rgb(mix(look.top, nightTint(look.top), dk));
+    x.fillRect(iL, gy, iR - iL, 2);
+    x.fillStyle = rgb(mix([224, 211, 160], nightTint([224, 211, 160]), dk));
+    if (cam <= shore) x.fillRect(shore, gy, 5, 3); // praia nas pontas
+    if (cam + vws >= WW - shore) x.fillRect(WW - shore - 5, gy, 5, 3);
+  }
   [60, WW - 60].forEach((px) => {
     if (px < cam - 30 || px > cam + vws + 30) return;
     const a = 0.4 + 0.4 * dk + 0.15 * Math.sin(T * 3);
@@ -427,8 +488,8 @@ function view(vx, vy, vw, vh, p) {
   // árvores
   G.trees.forEach((t) => {
     if (t.x < cam - 20 || t.x > cam + vws + 20) return;
-    const bl = G.peasants.find((q) => q.work === t && q.workTime > 0),
-      sh = bl ? Math.floor(T * 8) % 2 : 0;
+    const prog = t.progress || 0,
+      sh = G.peasants.some((q) => q.work === t && q.hit) ? Math.floor(T * 8) % 2 : 0;
     spr(
       TREE,
       { g: look.leaf[t.v ? 2 : 0], G: look.leaf[t.v ? 3 : 1], t: '#6b4a2a' },
@@ -441,14 +502,21 @@ function view(vx, vy, vw, vh, p) {
       B(t.x, 1, 5, '#4b3b2a', 15);
       B(t.x + 2, 4, 3, '#e33', 17);
     }
-    if (bl) {
+    if (prog > 0) {
       B(t.x, 10, 2, '#222', 20);
-      B(t.x - 5 + (5 * bl.workTime) / TREE_TIME, (10 * bl.workTime) / TREE_TIME, 2, '#7fd35a', 20);
+      B(t.x - 5 + (5 * prog) / TREE_TIME, (10 * prog) / TREE_TIME, 2, '#7fd35a', 20);
     }
   });
   // slots
   G.slots.forEach((sl) => {
     if (G.castle.lvl < sl.req) return;
+    if (sl.t === 'cata') {
+      if (sl.x == null) return;
+      if (sl.lvl) cata(sl);
+      else if (!sl.pend) site(sl.x, 'cata');
+      if (sl.pend) scaf(sl, T);
+      return;
+    }
     if (sl.t === 'farm') {
       if (sl.lvl) farm(sl);
       else if (!sl.pend) site(sl.x, 'farm');
@@ -465,9 +533,15 @@ function view(vx, vy, vw, vh, p) {
       if (sl.pend) scaf(sl, T);
     }
   });
-  stand(STANDS.ham, 'ham', G.tools.ham);
-  stand(STANDS.bow, 'bow', G.tools.bow);
+  if (G.castle.lvl >= 1) {
+    stand(STANDS.ham, 'ham', G.tools.ham);
+    stand(STANDS.bow, 'bow', G.tools.bow);
+  }
   if (farmUnlocked()) stand(G.farmStandX, 'farm', G.tools.farm);
+  ['spearL', 'spearR'].forEach((k) => {
+    const sx = standX(k);
+    if (sx != null) stand(sx, 'spear', G.tools[k]);
+  });
   // sede
   const L = G.castle.lvl,
     cw = 22 + L * 8,
@@ -499,18 +573,23 @@ function view(vx, vy, vw, vh, p) {
   G.groundCoins.forEach((c) =>
     spr(COIN, { y: '#f2c53d', Y: '#fff1a0' }, c.x, 2 + Math.abs(Math.sin(T * 3 + c.x)) * 2, false),
   );
-  CAMPS.forEach((c) => {
+  G.camps.forEach((c) => {
     if (c > cam - 40 && c < cam + vws + 40) camp(c, dk, T);
   });
   // gente
   G.vagrants.forEach((v) => person('vag', v.x, 0, v.tx < v.x, Math.abs(v.tx - v.x) > 1, T));
   G.peasants.forEach((q) => {
-    if (q.hurt) B(q.x, 2, 3, '#e33', 14); // acabou de ser atacado
+    if (q.hurt > 0) B(q.x, 2, 3, '#e33', 14); // acabou de ser atacado
     const onT = q.job && Math.abs(q.x - q.tx) < 3,
       fl = !!q.f;
     if (q.isArcher) {
       person('arc', q.x, onT ? 16 : 0, fl, q.m, T);
       spr(BOW, BOWP, q.x, (onT ? 16 : 0) + 3, fl, fl ? -5 : 5);
+    } else if (q.isSpearman) {
+      person('spr', q.x, 0, fl, q.m, T);
+      if (q.fishing)
+        spr(SPEARDOWN, SPEARP, q.x, -4 + Math.abs(Math.sin(T * 3)) * 2, fl, fl ? -6 : 6); // lança na água
+      else spr(SPEARM, SPEARP, q.x, 1 + (q.hit ? 3 : 0), fl, fl ? -6 : 6);
     } else if (q.isFarmer) {
       person('frm', q.x, 0, fl, q.m, T);
       spr(HOE, HOEP, q.x, 2 + (q.hit && Math.floor(T * 4) % 2 ? 2 : 0), fl, fl ? -5 : 5);
@@ -521,8 +600,9 @@ function view(vx, vy, vw, vh, p) {
   });
   // ferramentas caídas no chão (voltam à bancada se um jogador passar por cima)
   G.toolDrops.forEach((d) => {
-    const sprite = d.tool === 'bow' ? BOW : d.tool === 'farm' ? HOE : HAM,
-      pal = d.tool === 'bow' ? BOWP : d.tool === 'farm' ? HOEP : HAMP;
+    const sp = d.tool.startsWith('spear'),
+      sprite = sp ? SPEARM : d.tool === 'bow' ? BOW : d.tool === 'farm' ? HOE : HAM,
+      pal = sp ? SPEARP : d.tool === 'bow' ? BOWP : d.tool === 'farm' ? HOEP : HAMP;
     spr(sprite, pal, d.x, 2 + Math.abs(Math.sin(T * 4)) * 2, false);
   });
   // Greed: cor e forma por tipo (kind). jy = altura atual (voadores e saltos); charge = recuo antes da investida.
@@ -563,6 +643,11 @@ function view(vx, vy, vw, vh, p) {
       // flecha que errou: poeirinha onde ela caiu
       x.fillStyle = `rgba(190,170,130,${f.l * 2.5})`;
       x.fillRect(f.x - 2, gy - 3 - (0.3 - f.l) * 6, 4, 2);
+    } else if (f.k === 'boom') {
+      x.fillStyle = `rgba(255,150,40,${Math.min(1, f.l * 2)})`;
+      x.beginPath();
+      x.arc(f.x, gy - 6, 6 + (0.5 - f.l) * 40, 0, 7);
+      x.fill();
     } else if (f.k === 'pop') {
       x.strokeStyle = '#ffd23a';
       x.strokeRect(f.x - 6 + f.l * 10, gy - 14 - f.l * 10, 12 - f.l * 20, 12 - f.l * 20);
@@ -588,6 +673,26 @@ function view(vx, vy, vw, vh, p) {
     x.stroke();
     x.fillStyle = '#fff';
     x.fillRect(head.x - 0.5, gy - head.y - 0.5, 1.5, 1.5);
+  });
+  // pedras e dinamites da catapulta (parábola alta) e o fogo que a dinamite deixa
+  G.shells.forEach((a) => {
+    const u = Math.min(1, a.t / a.T),
+      px = a.x0 + (a.x1 - a.x0) * u,
+      py = a.y0 + (a.y1 - a.y0) * u + 4 * a.peak * u * (1 - u);
+    x.fillStyle = a.dyn ? '#d33' : '#8a8a90';
+    x.fillRect(px - 2, gy - py - 2, 4, 4);
+    if (a.dyn) {
+      x.fillStyle = Math.floor(T * 20) % 2 ? '#ffd23a' : '#ff9a2a';
+      x.fillRect(px - 1, gy - py - 5, 2, 2); // pavio aceso
+    }
+  });
+  G.fires.forEach((f) => {
+    const a = Math.min(1, (FIRE_TIME - f.t) / 1.5);
+    for (let i = -3; i <= 3; i++) {
+      const h = 5 + Math.abs(Math.sin(T * 10 + i * 1.7)) * 8;
+      x.fillStyle = `rgba(255,${120 + ((i * 29) % 60)},30,${0.85 * a})`;
+      x.fillRect(f.x + i * 7 - 2, gy - h, 4, h);
+    }
   });
   if (p.target) {
     icon(p.target);
@@ -626,7 +731,7 @@ function view(vx, vy, vw, vh, p) {
   x.fillStyle = '#f2e6c4';
   x.font = '12px "Courier New",monospace';
   x.fillText(
-    `Construtores ${G.peasants.filter((q) => q.isBuilder).length} · Arqueiros ${G.peasants.filter((q) => q.isArcher).length} · Fazendeiros ${G.peasants.filter((q) => q.isFarmer).length}`,
+    `Construtores ${G.peasants.filter((q) => q.isBuilder).length} · Arqueiros ${G.peasants.filter((q) => q.isArcher).length} · Fazendeiros ${G.peasants.filter((q) => q.isFarmer).length} · Lanceiros ${G.peasants.filter((q) => q.isSpearman).length}`,
     vx + 14,
     vy + 66,
   );

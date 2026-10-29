@@ -12,34 +12,33 @@
  *   G.trees        árvores (mark = marcada p/ cortar; site = ponto de obra escondido)
  *   G.stumps       tocos das árvores cortadas (permanentes)
  *   G.slots        pontos de construção: muros ('wall'), torres ('bow') e fazendas ('farm')
- *   G.castle       sede (lvl, hp, max)   G.tools  ferramentas nas bancadas {ham, bow, farm}
+ *   G.castle       sede (lvl = tier 0 a 3, hp, max)   G.tools  ferramentas nas bancadas {ham, bow, farm}
  *   G.farmStandX   x da bancada do fazendeiro (null até uma muralha ser expandida)
  *   G.effects      efeitos visuais temporários (poeira, brilho de compra)
  *   G.arrows       flechas em voo: saem em linha reta (visão livre) ou em parábola (muro no caminho)
  *   G.time         relógio: parte inteira = dia, parte decimal = hora do dia
  *
  * CAMPOS DE UM CAMPONÊS (peasant)
- *   isBuilder / isArcher / isFarmer   profissão (todas falsas = camponês comum)
+ *   isBuilder / isArcher / isFarmer / isSpearman   profissão (todas falsas = camponês comum)
  *   farm                   fazenda (slot do tipo 'farm') onde o fazendeiro trabalha
  *   farmDays               amanheceres já passados na fazenda (rende a partir de 1)
  *   job                    1 quando o arqueiro está ocupando uma torre (q.s = torre)
  *   goal                   'ham' ou 'bow' enquanto caminha até a bancada
  *   work                   obra (slot) ou árvore que o construtor está fazendo
- *   workTime               segundos já trabalhados em 'work'
+ *   (o progresso de uma obra/árvore fica nela mesma: w.progress, em segundos)
  *   archerSide             lado (-1 esquerda, 1 direita) onde o arqueiro livre fica
  *
  * COMO ADICIONAR COISAS: veja README.md
  */
 // ----- Configuração do mundo (ajuste o equilíbrio aqui) -----
 // WW largura do mundo | CX posição da sede | NIGHTS dias/noites para vencer | DAY_LENGTH_* duração do dia+noite (encurta ao longo do jogo)
-const WW = 3200,
-  CX = 1600,
+const WW = 6400, // largura do mundo (o dobro do original)
+  CX = 3200,
   NIGHTS = 32,
   DAY_LENGTH_START = 160, // segundos do dia completo (claro + noite) no 1º dia
   DAY_LENGTH_MIN = 90; // duração mínima, atingida no último dia
-// X dos acampamentos de vagabundos.
-// Cada acampamento começa o jogo cheio (VAGRANTS_PER_CAMP) e ganha 1 vagabundo por amanhecer até voltar ao limite.
-const CAMPS = [CX - 1400, CX - 900, CX + 900, CX + 1400];
+// Os acampamentos de vagabundos são sorteados a cada partida (G.camps). Cada um começa cheio (VAGRANTS_PER_CAMP)
+// e ganha 1 vagabundo por amanhecer até voltar ao limite.
 const VAGRANTS_PER_CAMP = 3;
 // ----- Estações e Lua de Sangue -----
 // O jogo é dividido em 4 estações de mesmo tamanho (a última é o inverno): SEASON_LEN dias cada.
@@ -51,12 +50,12 @@ const BLOOD_DAMAGE = 2; // multiplicador do dano dos Greed na Lua de Sangue
 const BLOOD_SPEED = 1.5; // multiplicador da velocidade dos Greed na Lua de Sangue
 // Sem limite de monstros por noite. O intervalo entre dois nascimentos cai de SPAWN_INTERVAL_START (dia 1) até
 // SPAWN_INTERVAL_MIN (último dia). Vida e velocidade iniciais já vêm multiplicadas (balanceamento).
-const SPAWN_INTERVAL_START = 0.7;
+const SPAWN_INTERVAL_START = 1.0;
 const SPAWN_INTERVAL_MIN = 0.05;
 const START_HP_MULT = 2; // vida inicial dos monstros x2
-const START_SPEED_MULT = 1.5 * 0.85; // velocidade inicial dos monstros: x1,5 e depois -15%
+const START_SPEED_MULT = 1.0; // velocidade inicial dos monstros (sem multiplicador)
 const START_DMG_MULT = 0.85; // dano inicial dos monstros -15%
-const BLOOD_COUNT = 2; // Lua de Sangue: quantidade de monstros x2
+const BLOOD_COUNT = 1.75; // Lua de Sangue: quantidade de monstros x1,75
 const BLOOD_SPECIAL_CHANCE = 2; // Lua de Sangue: chance dos monstros especiais x2 (só dos já liberados no dia)
 const MAX_GREED_SPEED = 120; // limite da velocidade base dos Greed (antes do multiplicador da Lua de Sangue)
 // ----- Cavalo: stamina -----
@@ -66,15 +65,15 @@ const PLAYER_SPEED = 70; // px/s andando (correndo = x SPRINT_MULT)
 const SPRINT_MULT = 1.8;
 const STAMINA_MAX = 100;
 const STAMINA_DRAIN = 30; // por segundo correndo (~3,3 s de corrida)
-const STAMINA_REGEN_MOVING = 12; // por segundo andando
-const STAMINA_REGEN_STILL = 24; // por segundo parado (2x)
+const STAMINA_REGEN_MOVING = 36; // por segundo andando
+const STAMINA_REGEN_STILL = 72; // por segundo parado (2x)
 const EXHAUSTED_SLOW = 0.95;
 // ----- Monstros: evolução e variações -----
 // A cada TIER_DAYS dias os Greed sobem de nível: +TIER_HP de vida, +TIER_DMG de dano e +TIER_SPEED de velocidade por nível.
 const TIER_DAYS = 4;
-const TIER_HP = 0.35;
-const TIER_DMG = 0.2;
-const TIER_SPEED = 0.06;
+const TIER_HP = 0.2;
+const TIER_DMG = 0.15;
+const TIER_SPEED = 0.4;
 const FLY_HEIGHT = 26; // altura (px) em que os voadores voam: passam por cima dos muros
 const RAM_WINDUP = 2.2; // segundos que o Investidor leva para preparar cada investida contra um muro
 const RAM_MULT = 8; // dano da investida = dano normal x RAM_MULT
@@ -83,34 +82,59 @@ const RAM_MULT = 8; // dano da investida = dano normal x RAM_MULT
 //  jumper: pula os muros | charger: investida que causa muito dano nos muros
 const GREED_KINDS = {
   normal: { hp: 2, sp: 38, dmg: 1, w: 8 },
-  big: { hp: 6, sp: 28, dmg: 2, w: 14, from: 4, chance: 0.15 },
-  flyer: { hp: 2, sp: 54, dmg: 1, w: 8, from: 6, chance: 0.15, air: true },
-  jumper: { hp: 3, sp: 44, dmg: 1, w: 8, from: 10, chance: 0.12 },
-  charger: { hp: 5, sp: 32, dmg: 1, w: 12, from: 14, chance: 0.1 },
+  big: { hp: 6, sp: 28, dmg: 2, w: 14, from: 8, chance: 0.15 },
+  flyer: { hp: 2, sp: 54, dmg: 1, w: 8, from: 12, chance: 0.15, air: true },
+  jumper: { hp: 3, sp: 44, dmg: 1, w: 8, from: 18, chance: 0.12 },
+  charger: { hp: 5, sp: 32, dmg: 1, w: 12, from: 26, chance: 0.1 },
 };
 // ----- Tempo de obra -----
 // Segundos para concluir cada nível, com 1 construtor (ajudantes aceleram: ver helpBoost). A sede é instantânea.
-const BUILD_TIME = { wall: [10, 25, 60], bow: [10, 25, 60], farm: [10, 25] };
+const BUILD_TIME = { wall: [10, 25, 60], bow: [10, 25, 60], farm: [10, 25], cata: [10] };
 const TREE_TIME = 20; // segundos para derrubar uma árvore
 const TREE_COINS = 2; // moedas que uma árvore derrubada solta
+// ----- Lanceiro (bancada liberada no tier 3 da sede) -----
+// Fica na ponta da muralha lutando corpo a corpo e, de manhã, pesca na beira da ilha.
+const SPEAR_DAMAGE = 2; // dano por golpe
+const SPEAR_COOLDOWN = 1.0; // segundos entre golpes
+const SPEAR_REACH = 26; // alcance do golpe (px); voadores não são alcançados
+const SPEAR_STAND_GAP = 20; // a bancada fica este tanto para dentro da ponta da muralha
+const FISH_CHANCE = 0.2; // chance de pescar um peixe (1 moeda) em cada tentativa
+const FISH_TRIES_PER_DAY = 2; // tentativas de pesca por dia
+const FISH_TIME = 3; // segundos de cada tentativa
+const FISH_MORNING = 0.3; // só pesca de manhã: primeiros 30% do ciclo do dia
+// ----- Catapulta (cabana atrás da bancada de lança, operada por um construtor) -----
+const CATA_BACK_GAP = 30; // a cabana nasce este tanto atrás da bancada de lança (se nada atrapalhar)
+const CATA_RANGE = 320; // alcance da catapulta (px)
+const CATA_COOLDOWN = 4; // segundos entre disparos
+const CATA_MOVE_TIME = 8; // segundos para um construtor mudar a cabana de lugar
+const DYNAMITE_COST = 5; // moedas por dinamite (guardadas na cabana, usadas uma atrás da outra)
+const DYNAMITE_MAX = 10; // máximo de dinamites guardadas
+const STONE_DAMAGE = 4;
+const STONE_RADIUS = 14; // dano em área da pedra
+const DYN_DAMAGE = 20;
+const DYN_RADIUS = 30;
+const FIRE_TIME = 5; // segundos que o fogo da dinamite dura
+const FIRE_RADIUS = 24;
+const FIRE_DPS = 4; // dano por segundo em quem pisa no fogo
 // ----- Fazendeiros -----
 // A bancada e as fazendas só aparecem com a sede no nível 2 e uma muralha expandida: ver checkFarmUnlock().
 const FARMC = [4, 8]; // custo da fazenda (nível 1) e da melhoria para o nível 2 (precisam de construtor)
 const FARM_CAPACITY = [0, 8, 12]; // fazendeiros que cabem na fazenda, por nível dela
-const FARM_SITES = 3; // quantos terrenos de fazenda surgem, em posições aleatórias perto da sede
+const FARM_SITES = 6; // quantos terrenos de fazenda surgem, em posições aleatórias (alternando os lados)
 const FARM_YIELD = 3; // moedas que CADA fazendeiro gera por amanhecer (soltas na fazenda)
 // Um fazendeiro só rende depois de passar 1 amanhecer inteiro na fazenda, ou seja, a partir do 2º dia.
 // Preço da ferramenta de cada bancada (a ferramenta vira a profissão quando um camponês a pega).
-const TOOL_COST = { ham: 3, bow: 2, farm: 4 };
+const TOOL_COST = { ham: 3, bow: 2, farm: 4, spear: 3 };
 // ----- Flechas -----
 // Alturas (px acima do chão) de onde a flecha sai e onde atinge. Usadas na linha de visão (clearShot).
 const ARROW_TOWER_H = 22; // arqueiro na plataforma da torre
 const ARROW_GROUND_H = 8; // arqueiro no chão
 const ARROW_TARGET_H = 4; // corpo do Greed
-const ARROW_TOWER_RANGE = 135; // alcance de detecção de um arqueiro na torre (px)
-const ARROW_GROUND_RANGE = 115; // alcance de um arqueiro no chão (px)
-const ARROW_TOWER_COOLDOWN = 1.8; // segundos entre flechas (torre)
-const ARROW_GROUND_COOLDOWN = 2.0; // segundos entre flechas (chão)
+const ARROW_TOWER_RANGE = 150; // alcance de detecção de um arqueiro na torre (px)
+const TOWER_FORWARD_MULT = 2; // torre fora do muro: alcance só para a frente, com este múltiplo (ver towerExposed)
+const ARROW_GROUND_RANGE = 125; // alcance de um arqueiro no chão (px)
+const ARROW_TOWER_COOLDOWN = 1.5; // segundos entre flechas (torre)
+const ARROW_GROUND_COOLDOWN = 1.75; // segundos entre flechas (chão)
 const ARROW_DAMAGE = 1.25; // dano de cada flecha (antes 1; +25%)
 // ----- Monstros contra pessoas -----
 // Monstros atacam trabalhadores e aldeões contratados (nunca vagabundos). Trabalhador atingido perde a profissão e
@@ -126,24 +150,29 @@ const HELP_DECAY = 0.25;
 const FARM_STAND_GAP = 30; // distância da bancada do fazendeiro à frente do muro mais interno
 // X das bancadas fixas (ham = construtor, bow = arqueiro). A do fazendeiro é decidida durante o jogo: G.farmStandX.
 const STANDS = { ham: CX - 64, bow: CX + 64 };
-// Pontos de construção da sede: [distância da sede, tipo, nível da sede exigido].
-const SL = [
-  [-110, 'bow', 1],
-  [110, 'bow', 1],
-  [-220, 'wall', 1],
-  [220, 'wall', 1],
-  [-360, 'bow', 2],
-  [360, 'bow', 2],
-  [-470, 'wall', 2],
-  [470, 'wall', 2],
-  [-640, 'wall', 3],
-  [640, 'wall', 3],
+// Os ÚNICOS pontos fixos do mundo: a torre e o muro da base, dos dois lados: [distância da sede, tipo].
+// Todo o resto (outros muros, torres, fazendas, árvores, baús e acampamentos) é sorteado em mkWorld().
+const BASE_SLOTS = [
+  [-110, 'bow'],
+  [110, 'bow'],
+  [-220, 'wall'],
+  [220, 'wall'],
 ];
+// ----- Geração do mundo -----
+const HALF = WW / 2; // distância da sede até cada ponta do mapa
+const WALLS_RANDOM_PER_SIDE = 5; // muros sorteados por lado (além do muro fixo da base)
+const TOWERS_RANDOM_PER_SIDE = 3; // pontos de torre sorteados por lado (além da torre fixa da base)
+const TREE_SITES_PER_SIDE = 6; // árvores com placa por lado (viram ponto de muro ou torre ao serem cortadas)
+const CAMPS_PER_SIDE = 4; // acampamentos de vagabundos por lado
+const COMMON_TREES = 30; // árvores comuns no mapa inteiro
+const CHESTS_PER_SIDE = 2; // baús por lado (antes eram 7 no mapa todo, com 4 a 7 moedas)
+const CHEST_COINS_MIN = 8; // moedas por baú: mais que antes, para compensar a menor quantidade
+const CHEST_COINS_MAX = 14;
 // Vida dos muros por nível | custo de cada nível de muro | de torre | de melhoria da sede.
 const WALLHP = [0, 10, 20, 32.5],
   WALLC = [2, 4, 7],
   BOWC = [3, 5, 8],
-  CENC = [5, 9];
+  CENC = [3, 5, 9];
 // Teclas dos jogadores locais (modo tela dividida).
 const K = [
   { l: 'KeyA', r: 'KeyD', d: 'KeyS', s: 'ShiftLeft' },
@@ -176,6 +205,7 @@ function mk(px, i) {
 
 // Cria um mundo novo. n = jogadores iniciais (o servidor online usa 0 e adiciona conforme conectam).
 function newGame(n) {
+  const world = mkWorld();
   G = {
     numPlayers: n,
     time: 0,
@@ -186,35 +216,29 @@ function newGame(n) {
     spawnTimer: 0,
     over: null,
     players: Array.from({ length: n }, (_, i) => mk(CX - 40 + i * 80, i)),
-    castle: { lvl: 1, hp: 14, max: 14, cd: 0 },
-    slots: SL.map(([o, t, r]) => ({
-      x: CX + o,
-      t,
-      req: r,
-      lvl: 0,
-      hp: 0,
-      ar: null,
-      cd: 0,
-      side: Math.sign(o),
-    })).concat(mkFarms()),
+    castle: { lvl: 0, hp: 14, max: 14, cd: 0 }, // lvl = tier da sede (0 a 3)
+    slots: world.slots.concat(mkCatas()),
+    camps: world.camps, // x de cada acampamento de vagabundos
     peasants: [
       { x: CX - 30, tx: CX - 30, job: 0 },
       { x: CX + 30, tx: CX + 30, job: 0 },
     ],
     nextId: 0,
-    tools: { ham: 0, bow: 0, farm: 0 },
+    tools: { ham: 0, bow: 0, farm: 0, spearL: 0, spearR: 0 },
     farmStandX: null,
     vagrants: [],
     greeds: [],
     groundCoins: Array.from({ length: 10 }, (_, i) => ({ x: CX - 36 + i * 8 })),
     effects: [],
     arrows: [],
+    shells: [], // pedras/dinamites da catapulta em voo
+    fires: [], // fogo deixado pela dinamite
     toolDrops: [], // ferramentas caídas no chão: { x, tool }
-    trees: mkTrees(),
+    trees: world.trees,
     stumps: [],
-    chests: mkChests(),
+    chests: world.chests,
   };
-  CAMPS.forEach((c) => {
+  G.camps.forEach((c) => {
     for (let i = 0; i < VAGRANTS_PER_CAMP; i++) G.vagrants.push(newVagrant(c, (i - 1) * 24));
   });
 }
@@ -224,31 +248,92 @@ function newVagrant(camp, offset = rnd(-30, 30)) {
   return { id: (G.nextId = (G.nextId || 0) + 1), x, tx: x, w: 0, home: camp };
 }
 
-// 12 árvores comuns + 6 árvores com placa (3 por lado) que viram pontos de muro/torre quando cortadas.
-function mkTrees() {
-  const a = [];
-  while (a.length < 12) {
-    const t = rnd(160, WW - 160);
-    if (Math.abs(t - CX) > 200) a.push({ x: t, mark: 0, v: a.length % 2 });
+// Sorteia até n posições de um lado da sede (side = -1 ou 1), entre lo e hi de distância dela, com folga mínima
+// gap entre elas (lista `group`, que recebe as escolhidas) e avoidGap das posições em `avoid`.
+// Devolve as posições do ponto mais perto para o mais longe da sede.
+function pickSpots(side, n, lo, hi, gap, group, avoid = [], avoidGap = 0) {
+  const out = [];
+  for (let tries = 0; out.length < n && tries < 6000; tries++) {
+    const x = Math.round(CX + side * rnd(lo, hi));
+    if (
+      group.every((t) => Math.abs(t - x) >= gap) &&
+      avoid.every((t) => Math.abs(t - x) >= avoidGap)
+    ) {
+      out.push(x);
+      group.push(x);
+    }
   }
-  for (const sg of [-1, 1])
-    ['wall', 'bow', 'wall'].forEach((st, i) =>
-      a.push({ x: CX + sg * (760 + i * 260), mark: 0, v: i % 2, site: st }),
-    );
-  return a;
+  return out.sort((a, b) => Math.abs(a - CX) - Math.abs(b - CX));
 }
-// Sorteia 7 baús afastados da sede e entre si.
-function mkChests() {
-  const a = [];
-  while (a.length < 7) {
-    const t = rnd(200, WW - 200);
-    if (Math.abs(t - CX) > 260 && a.every((c) => Math.abs(c.x - t) > 150)) a.push({ x: t });
+// Cria o mundo sorteado: pontos de muro/torre, terrenos de fazenda, árvores (comuns e com placa), baús e acampamentos.
+// Só a torre e o muro da base (BASE_SLOTS) têm posição fixa.
+function buildWorld() {
+  const mk = (x, t, req, side) => ({ x, t, req, lvl: 0, hp: 0, ar: null, cd: 0, side });
+  const used = [CX, CX - 64, CX + 64, CX - 250, CX + 250], // sede, bancadas e bancada do fazendeiro
+    slots = [],
+    trees = [],
+    camps = [],
+    chests = [];
+  BASE_SLOTS.forEach(([o, t]) => {
+    used.push(CX + o);
+    slots.push(mk(CX + o, t, 1, Math.sign(o)));
+  });
+  for (const side of [-1, 1]) {
+    // muros: o 2º e o 3º de cada lado exigem sede tier 2; os demais, tier 3. Torres: a 2ª tier 2, as demais tier 3.
+    pickSpots(side, WALLS_RANDOM_PER_SIDE, 300, HALF - 200, 70, used).forEach((x, i) =>
+      slots.push(mk(x, 'wall', i < 2 ? 2 : 3, side)),
+    );
+    pickSpots(side, TOWERS_RANDOM_PER_SIDE, 280, HALF - 200, 60, used).forEach((x, i) =>
+      slots.push(mk(x, 'bow', i < 1 ? 2 : 3, side)),
+    );
+    // árvores com placa: ao serem cortadas viram ponto de muro ou torre
+    const kinds = ['wall', 'bow', 'wall', 'bow', 'wall', 'wall'],
+      sites = [];
+    pickSpots(side, TREE_SITES_PER_SIDE, 700, HALF - 150, 110, sites, used, 45).forEach((x, i) => {
+      used.push(x);
+      trees.push({ x, mark: 0, v: i % 2, site: kinds[i % kinds.length] });
+    });
   }
-  return a;
+  // terrenos de fazenda: alternam os lados, perto ou longe da base
+  const first = Math.random() < 0.5 ? -1 : 1;
+  for (let i = 0; i < FARM_SITES; i++) {
+    const side = i % 2 ? -first : first,
+      [x] = pickSpots(side, 1, 160, HALF - 250, 55, used);
+    if (x != null) slots.push(mk(x, 'farm', 0, side));
+  }
+  // acampamentos de vagabundos (longe da base e das construções) e baús (longe da base e entre si)
+  for (const side of [-1, 1]) {
+    pickSpots(side, CAMPS_PER_SIDE, 500, HALF - 250, 350, camps, used, 70);
+    pickSpots(side, CHESTS_PER_SIDE, 300, HALF - 200, 500, []).forEach((x) => chests.push({ x }));
+  }
+  // árvores comuns em qualquer ponto do mapa, a mais de 200 da sede
+  while (trees.length < COMMON_TREES + 2 * TREE_SITES_PER_SIDE) {
+    const x = rnd(160, WW - 160);
+    if (Math.abs(x - CX) > 200) trees.push({ x, mark: 0, v: trees.length % 2 });
+  }
+  return { slots, trees, camps, chests };
+}
+// Gera o mundo e, se por falta de espaço algum item não coube (raro), sorteia de novo (até 30 tentativas).
+function mkWorld() {
+  let w;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    w = buildWorld();
+    const n = (t) => w.slots.filter((s) => s.t === t).length;
+    if (
+      n('wall') === 2 * (1 + WALLS_RANDOM_PER_SIDE) &&
+      n('bow') === 2 * (1 + TOWERS_RANDOM_PER_SIDE) &&
+      n('farm') === FARM_SITES &&
+      w.trees.filter((t) => t.site).length === 2 * TREE_SITES_PER_SIDE &&
+      w.camps.length === 2 * CAMPS_PER_SIDE &&
+      w.chests.length === 2 * CHESTS_PER_SIDE
+    )
+      break;
+  }
+  return w;
 }
 // Custo do PRÓXIMO nível de um ponto de construção (0 = já está no nível máximo).
 function cost(s) {
-  const table = { wall: WALLC, bow: BOWC, farm: FARMC }[s.t];
+  const table = { wall: WALLC, bow: BOWC, farm: FARMC, cata: [5] }[s.t];
   return s.lvl < table.length ? table[s.lvl] : 0;
 }
 // Fazendas liberadas? Sim depois que a bancada do fazendeiro foi posicionada (checkFarmUnlock).
@@ -257,7 +342,109 @@ function farmUnlocked() {
 }
 // X da bancada de uma profissão ('ham', 'bow' ou 'farm'); null se a do fazendeiro ainda não existe.
 function standX(k) {
-  return k === 'farm' ? G.farmStandX : STANDS[k];
+  if (k === 'farm') return G.farmStandX;
+  if (k === 'spearL') return spearStandX(-1);
+  if (k === 'spearR') return spearStandX(1);
+  return G.castle.lvl >= 1 ? STANDS[k] : null; // tier 0: sem bancadas
+}
+// Ponta da muralha de um lado: o muro construído mais longe da sede (precisa de pelo menos 2 muros construídos).
+function spearTipX(side) {
+  const walls = G.slots.filter((w) => w.t === 'wall' && w.lvl > 0 && w.side === side);
+  if (walls.length < 2) return null;
+  return walls.reduce((a, b) => (Math.abs(a.x - CX) > Math.abs(b.x - CX) ? a : b)).x;
+}
+// Bancada do lanceiro: tier 3, sempre na ponta da muralha (SPEAR_STAND_GAP para dentro). Se um muro cair, a bancada recua
+// para o muro anterior; se sobrar menos de 2 muros, ela some até a muralha ser reconstruída.
+function spearStandX(side) {
+  if (G.castle.lvl < 3) return null;
+  const tip = spearTipX(side);
+  return tip == null ? null : tip - side * SPEAR_STAND_GAP;
+}
+// Há algo no caminho de uma cabana de catapulta em x? Árvores inteiras, pontos de muro/torre/fazenda, tendas de vagabundos e bancadas.
+function cataBlocked(x) {
+  const near = (v, r) => Math.abs(v - x) < r;
+  return (
+    G.trees.some((t) => near(t.x, 22)) ||
+    G.slots.some((s) => s.t !== 'cata' && s.x != null && G.castle.lvl >= s.req && near(s.x, 24)) ||
+    G.camps.some((c) => near(c, 44)) ||
+    [STANDS.ham, STANDS.bow, G.farmStandX, spearStandX(-1), spearStandX(1)].some(
+      (v) => v != null && near(v, 26),
+    )
+  );
+}
+// Onde a cabana do lado side deve ficar: logo atrás da bancada de lança; se algo atrapalhar, recua em direção à sede.
+function cataSpot(side) {
+  const sx = spearStandX(side);
+  if (sx == null) return null;
+  for (let off = CATA_BACK_GAP; off <= 200; off += 10) {
+    const x = sx - side * off;
+    if (Math.abs(x - CX) < 44) break; // chegou na sede
+    if (!cataBlocked(x)) return x;
+  }
+  return null;
+}
+// Tempo (s) que a obra/tarefa w exige: mudar a cabana de lugar, construir/melhorar ou derrubar uma árvore.
+function jobNeed(w) {
+  return w.relocate != null ? CATA_MOVE_TIME : w.t ? BUILD_TIME[w.t][w.lvl] : TREE_TIME;
+}
+// Os monstros destruíram a cabana: volta a ser um ponto vazio (custa 5 moedas de novo) e perde as dinamites.
+function destroyHut(s) {
+  if (s.op) {
+    s.op.cataOp = null;
+    s.op = null;
+  }
+  s.lvl = 0;
+  s.ammo = 0;
+  s.pend = 0;
+  s.relocate = null;
+  s.progress = 0;
+  G.effects.push({ k: 'boom', x: s.x, l: 0.5 });
+}
+// Pedras e dinamites em voo; no impacto causam dano em área (só em Greed terrestres). A dinamite deixa fogo no chão.
+function updateShells(dt) {
+  G.shells = G.shells.filter((sh) => {
+    sh.t += dt;
+    if (sh.t < sh.T) return true;
+    const r = sh.dyn ? DYN_RADIUS : STONE_RADIUS,
+      dmg = sh.dyn ? DYN_DAMAGE : STONE_DAMAGE;
+    [...G.greeds].forEach((g) => {
+      if (!g.air && !g.fl && Math.abs(g.x - sh.x1) < r + g.w / 2) {
+        g.hp -= dmg;
+        if (g.hp <= 0) kill(g);
+      }
+    });
+    G.effects.push({ k: sh.dyn ? 'boom' : 'puff', x: sh.x1, l: 0.5 });
+    if (sh.dyn) G.fires.push({ x: sh.x1, t: 0, tick: 0 });
+    return false;
+  });
+  G.fires = G.fires.filter((f) => (f.t += dt) < FIRE_TIME);
+  G.fires.forEach((f) => {
+    f.tick -= dt;
+    if (f.tick > 0) return;
+    f.tick = 0.5; // o fogo machuca a cada meio segundo quem estiver nele
+    [...G.greeds].forEach((g) => {
+      if (!g.air && !(g.jy > 6) && Math.abs(g.x - f.x) < FIRE_RADIUS + g.w / 2) {
+        g.hp -= FIRE_DPS * 0.5;
+        if (g.hp <= 0) kill(g);
+      }
+    });
+  });
+}
+// Dois pontos de cabana (um por lado), só existem de verdade quando há bancada de lança do lado.
+function mkCatas() {
+  return [-1, 1].map((side) => ({
+    x: null,
+    t: 'cata',
+    req: 3,
+    lvl: 0,
+    hp: 0,
+    ar: null,
+    cd: 0,
+    side,
+    ammo: 0,
+    op: null,
+    recoil: 0,
+  }));
 }
 // Muralha expandida = sede nível 2 e, em algum lado, pelo menos 2 muros construídos (a muralha ganhou
 // território novo). A bancada do fazendeiro nasce logo à frente (para fora) do muro mais interno
@@ -271,21 +458,6 @@ function checkFarmUnlock() {
     G.farmStandX = inner.x + side * FARM_STAND_GAP;
     return;
   }
-}
-// Sorteia os terrenos de fazenda (visíveis desde o início, o jogador escolhe onde construir): entre 150 e 650 da sede, sem encostar em muros/torres nem entre si.
-function mkFarms() {
-  const taken = SL.map(([o]) => CX + o).concat([CX - 250, CX + 250]),
-    farms = [],
-    first = Math.random() < 0.5 ? -1 : 1;
-  while (farms.length < FARM_SITES) {
-    const side = farms.length % 2 ? -first : first, // alterna os lados: sempre há terrenos dos dois lados
-      x = Math.round(CX + side * rnd(150, 650));
-    if (taken.every((t) => Math.abs(t - x) > 40)) {
-      taken.push(x);
-      farms.push({ x, t: 'farm', req: 0, lvl: 0, hp: 0, ar: null, cd: 0, side });
-    }
-  }
-  return farms;
 }
 // Sobe um nível do ponto de construção. Chamado quando o construtor termina a obra.
 function build(s) {
@@ -318,7 +490,8 @@ function targetFor(p) {
     ),
   );
   G.slots.forEach((s) => {
-    if (G.castle.lvl < s.req || s.pend) return;
+    if (s.x == null || G.castle.lvl < s.req || s.pend) return;
+    if (s.t === 'wall' && s.lvl >= 2 && G.castle.lvl < 3) return; // 3º nível do muro: só no tier 3 da sede
     const c = cost(s);
     if (c)
       cand(
@@ -341,29 +514,29 @@ function targetFor(p) {
         'axe',
       );
   });
-  if (G.tools.ham < 4)
+  if (standX('ham') != null && G.tools.ham < 4)
     cand(
-      STANDS.ham,
+      standX('ham'),
       TOOL_COST.ham,
       () => {
         G.tools.ham++;
       },
       'ham',
     );
-  if (G.tools.bow < 4)
+  if (standX('bow') != null && G.tools.bow < 4)
     cand(
-      STANDS.bow,
+      standX('bow'),
       TOOL_COST.bow,
       () => {
         G.tools.bow++;
       },
       'arc',
     );
-  // Melhoria da sede (níveis 1 -> 2 -> 3): paga no centro da sede.
+  // Melhoria da sede (tier 0 -> 1 -> 2 -> 3): paga no centro da sede. O tier 0 não tem bancadas.
   if (G.castle.lvl < 3)
     cand(
       CX,
-      CENC[G.castle.lvl - 1],
+      CENC[G.castle.lvl],
       () => {
         G.castle.lvl++;
         G.castle.max += 8;
@@ -380,6 +553,30 @@ function targetFor(p) {
       },
       'farm',
     );
+  // Bancadas do lanceiro (uma em cada ponta da muralha) e dinamites da catapulta.
+  ['spearL', 'spearR'].forEach((k) => {
+    const sx = standX(k);
+    if (sx != null && G.tools[k] < 4)
+      cand(
+        sx,
+        TOOL_COST.spear,
+        () => {
+          G.tools[k]++;
+        },
+        'spear',
+      );
+  });
+  G.slots.forEach((s) => {
+    if (s.t === 'cata' && s.lvl > 0 && s.x != null && s.ammo < DYNAMITE_MAX)
+      cand(
+        s.x,
+        DYNAMITE_COST,
+        () => {
+          s.ammo++;
+        },
+        'dyn',
+      );
+  });
   return best;
 }
 
@@ -433,10 +630,49 @@ function helpBoost(n) {
 function jobActive(w) {
   return w.t ? !!w.pend : !!w.mark && G.trees.includes(w);
 }
-// Quantos construtores ajudantes já chegaram perto da obra site.
-function helpersAt(site) {
-  return G.peasants.filter((o) => o.isBuilder && o.helping === site && Math.abs(o.x - site.x) < 16)
-    .length;
+// Torre "antes do muro": está fora do perímetro, ou seja, há um muro construído do mesmo lado mais perto da sede e
+// nenhum mais longe do que ela. Nesse caso o alcance não é um círculo: vale só para a FRENTE (para fora, em direção
+// ao portal), com TOWER_FORWARD_MULT x o alcance, e nada para trás. Torre depois do muro mantém o alcance em volta.
+function towerExposed(s) {
+  const walls = G.slots.filter((w) => w.t === 'wall' && w.lvl > 0 && w.side === s.side),
+    d = Math.abs(s.x - CX);
+  return walls.some((w) => Math.abs(w.x - CX) < d) && !walls.some((w) => Math.abs(w.x - CX) > d);
+}
+// Conclui uma obra ou a derrubada de uma árvore e libera os construtores que estavam nela.
+function finishJob(w) {
+  if (w.t && w.relocate != null) {
+    // cabana mudou de lugar
+    w.x = w.relocate;
+    w.relocate = null;
+    w.pend = 0;
+    w.progress = 0;
+  } else if (w.t) {
+    w.pend = 0;
+    w.progress = 0; // a próxima melhoria começa do zero
+    build(w);
+  } else {
+    G.trees.splice(G.trees.indexOf(w), 1);
+    G.stumps.push({ x: w.x });
+    if (w.site)
+      G.slots.push({
+        x: w.x,
+        t: w.site,
+        req: 0,
+        lvl: 0,
+        hp: 0,
+        ar: null,
+        cd: 0,
+        side: Math.sign(w.x - CX),
+      });
+    for (let i = 0; i < TREE_COINS; i++) G.groundCoins.push({ x: w.x + rnd(-12, 12) });
+    G.effects.push({ k: 'puff', x: w.x, l: 0.4 });
+  }
+  G.peasants.forEach((q) => {
+    if (q.work === w) {
+      q.work = null;
+      q.hit = 0;
+    }
+  });
 }
 // Atualiza a stamina do cavalo h e devolve a velocidade (px/s) neste quadro.
 // Usada pelo servidor e também pelo cliente (predição), por isso precisa ser idêntica nos dois.
@@ -477,6 +713,7 @@ function hitWall(w, dmg) {
   if (w.hp <= 0) {
     w.hp = 0;
     w.lvl = 0;
+    w.progress = 0;
   }
 }
 // Altura (px) de um muro construído de nível lvl. Igual à usada no desenho.
@@ -558,11 +795,24 @@ function vulnerable(q, g) {
 function hitPerson(g, q) {
   q.hurt = HURT_TIME;
   G.effects.push({ k: 'puff', x: q.x, l: 0.3 });
-  const tool = q.isBuilder ? 'ham' : q.isArcher ? 'bow' : q.isFarmer ? 'farm' : null;
+  const tool = q.isBuilder
+    ? 'ham'
+    : q.isArcher
+      ? 'bow'
+      : q.isFarmer
+        ? 'farm'
+        : q.isSpearman
+          ? q.spearKey
+          : null;
   let loot = null;
   if (tool) {
     if (q.job && q.s && q.s.ars) q.s.ars = q.s.ars.filter((o) => o !== q); // sai da torre
-    q.isBuilder = q.isArcher = q.isFarmer = 0;
+    q.isBuilder = q.isArcher = q.isFarmer = q.isSpearman = 0;
+    q.fishing = 0;
+    if (q.cataOp) {
+      q.cataOp.op = null; // a catapulta perde o operador
+      q.cataOp = null;
+    }
     q.job = 0;
     q.s = null;
     q.work = null;
@@ -611,7 +861,7 @@ function update(dt) {
       }
       q.farmDays = (q.farmDays || 0) + 1;
     });
-    CAMPS.forEach((c) => {
+    G.camps.forEach((c) => {
       if (G.vagrants.filter((v) => v.home === c).length < VAGRANTS_PER_CAMP)
         G.vagrants.push(newVagrant(c));
     });
@@ -624,7 +874,9 @@ function update(dt) {
   if (pr >= 0.6 && !G.nightStarted) {
     G.nightStarted = 1;
     // Lua Roxa: ninguém nasce. Lua de Sangue: o dobro de monstros. Sem limite de quantidade.
-    G.greedsLeft = isPurpleMoon() ? 0 : (4 + 3 * G.day) * (isBloodMoon() ? BLOOD_COUNT : 1);
+    G.greedsLeft = isPurpleMoon()
+      ? 0
+      : Math.round((4 + 3 * G.day) * (isBloodMoon() ? BLOOD_COUNT : 1));
   }
   if (G.nightStarted && G.greedsLeft > 0) {
     G.spawnTimer -= dt;
@@ -690,7 +942,8 @@ function update(dt) {
     });
     G.chests = G.chests.filter((c) => {
       if (Math.abs(c.x - p.x) < 12) {
-        const n = 4 + Math.floor(Math.random() * 4);
+        const n =
+          CHEST_COINS_MIN + Math.floor(Math.random() * (CHEST_COINS_MAX - CHEST_COINS_MIN + 1));
         for (let i = 0; i < n; i++) G.groundCoins.push({ x: c.x + rnd(-14, 14) });
         G.effects.push({ k: 'pop', x: c.x, l: 0.3 });
         return false;
@@ -722,7 +975,52 @@ function update(dt) {
     wr = bw.filter((v) => v > CX);
   const zl = wl.length ? Math.min(...wl) + 12 : CX - 150,
     zr = wr.length ? Math.max(...wr) - 12 : CX + 150;
-  const bl = G.peasants.filter((q) => q.isBuilder);
+  // 5a1. Cabanas de catapulta: a ainda não construída acompanha a bancada de lança; a construída, se a bancada
+  // se mover, vira uma tarefa de MUDANÇA (feita por construtores, CATA_MOVE_TIME s). Sem bancada, o ponto some.
+  G.slots.forEach((s) => {
+    if (s.t !== 'cata') return;
+    const d = cataSpot(s.side);
+    if (d == null) {
+      if (s.lvl === 0) {
+        s.x = null;
+        s.pend = 0;
+        s.progress = 0;
+      }
+      return;
+    }
+    if (s.lvl === 0) s.x = d;
+    else if (s.relocate != null) s.relocate = d;
+    else if (!s.pend && Math.abs(s.x - d) > 6) {
+      s.relocate = d;
+      s.pend = 1;
+      s.progress = 0;
+    }
+  });
+  // 5a2. Cada cabana pronta precisa de um construtor livre como operador (fica ao lado dela e dispara a catapulta).
+  G.slots.forEach((s) => {
+    if (s.t !== 'cata') return;
+    if (s.op && (!G.peasants.includes(s.op) || !s.op.isBuilder || s.lvl < 1)) {
+      s.op.cataOp = null;
+      s.op = null;
+    }
+    if (s.lvl < 1 || s.op || s.x == null) return;
+    let bq = null,
+      bd = 1e9;
+    G.peasants.forEach((q) => {
+      if (q.isBuilder && !q.cataOp && !q.work && !q.helping) {
+        const d = Math.abs(q.x - s.x);
+        if (d < bd) {
+          bd = d;
+          bq = q;
+        }
+      }
+    });
+    if (bq) {
+      bq.cataOp = s;
+      s.op = bq;
+    }
+  });
+  const bl = G.peasants.filter((q) => q.isBuilder && !q.cataOp);
   const ins = (v) => v >= zl - 14 && v <= zr + 14;
   // Noite sem nenhum Greed vivo e nenhum por surgir: construtores podem trabalhar até fora das muralhas.
   const safe = G.greeds.length === 0 && G.greedsLeft === 0;
@@ -752,7 +1050,6 @@ function update(dt) {
         });
         if (bq) {
           bq.work = w;
-          bq.workTime = 0;
           bq.helping = null;
         }
       });
@@ -782,11 +1079,30 @@ function update(dt) {
       });
     q.helping = bs;
   });
+  // 5b3. Progresso das obras e árvores. O trabalho anda quando HÁ construtores no local (principal ou ajudante:
+  // tanto faz quem chegou primeiro): 1 presente = 1x, 2 = 2x, 3 = 3x... (helpBoost). O progresso fica guardado
+  // na própria obra/árvore (w.progress), então se for interrompido (noite etc.) continua de onde parou.
+  G.slots
+    .filter((s) => s.pend)
+    .concat(G.trees.filter((t) => t.mark))
+    .forEach((w) => {
+      if (!canWork(w.x)) return;
+      const present = bl.filter(
+        (q) => (q.work === w || q.helping === w) && Math.abs(q.x - w.x) < 20,
+      ).length;
+      if (!present) return;
+      w.progress = (w.progress || 0) + dt * helpBoost(present - 1);
+      if (w.progress >= jobNeed(w)) finishJob(w);
+    });
   bl.forEach((q, i) => {
     q.home = zl + ((i + 1) / (bl.length + 1)) * (zr - zl);
   });
+  // bancada que sumiu (muralha destruída): quem estava indo até ela desiste
+  G.peasants.forEach((q) => {
+    if (q.goal && standX(q.goal) == null) q.goal = null;
+  });
   // 5c. Camponeses ociosos vão buscar ferramentas disponíveis nas bancadas (uma reservada por camponês).
-  ['ham', 'bow', 'farm'].forEach((k) => {
+  ['ham', 'bow', 'farm', 'spearL', 'spearR'].forEach((k) => {
     const sx = standX(k);
     if (sx == null) return;
     let av = G.tools[k] - G.peasants.filter((q) => q.goal === k).length;
@@ -794,7 +1110,7 @@ function update(dt) {
       let bq = null,
         bd = 1e9;
       G.peasants.forEach((q) => {
-        if (!q.job && !q.isBuilder && !q.isArcher && !q.isFarmer && !q.goal) {
+        if (!q.job && !q.isBuilder && !q.isArcher && !q.isFarmer && !q.isSpearman && !q.goal) {
           const d = Math.abs(q.x - sx);
           if (d < bd) {
             bd = d;
@@ -812,9 +1128,13 @@ function update(dt) {
   G.peasants.forEach((q) => {
     if (q.isArcher && !q.job) q.k = cnt[q.archerSide]++;
   });
+  const sc = { spearL: 0, spearR: 0 };
+  G.peasants.forEach((q) => {
+    if (q.isSpearman) q.si = sc[q.spearKey]++; // posição na fila do posto
+  });
   // 5e. Ação de cada camponês: pegar ferramenta > trabalhar > ficar na zona (construtor/arqueiro) > vagar.
   G.peasants.forEach((q) => {
-    if (q.hurt > 0) q.hurt -= dt;
+    if (q.hurt > 0) q.hurt = Math.max(0, q.hurt - dt);
     if (q.goal) {
       q.tx = standX(q.goal);
       if (Math.abs(q.x - q.tx) < 4) {
@@ -824,50 +1144,65 @@ function update(dt) {
           G.tools[k]--;
           if (k === 'ham') q.isBuilder = 1;
           else if (k === 'farm') q.isFarmer = 1;
-          else {
+          else if (k === 'spearL' || k === 'spearR') {
+            q.isSpearman = 1;
+            q.spearKey = k;
+          } else {
             q.archerSide = G.peasants.filter((o) => o.isArcher).length % 2 ? 1 : -1;
             q.isArcher = 1;
           }
         }
       }
+    } else if (q.cataOp) {
+      // Operador da catapulta: fica ao lado da cabana.
+      q.tx = q.cataOp.x - q.cataOp.side * 14;
+      q.hit = q.cataOp.recoil > 0 ? 1 : 0;
     } else if (q.work) {
+      // Construtor principal: só vai até o local. O progresso é contado por obra (bloco 5b3).
       q.tx = q.work.x;
-      if (Math.abs(q.x - q.tx) < 4) {
-        q.workTime += dt * helpBoost(helpersAt(q.work)); // obras e árvores aceleram com ajudantes
-        q.hit = 1;
-        const w = q.work,
-          need = w.t ? BUILD_TIME[w.t][w.lvl] : TREE_TIME;
-        if (q.workTime >= need) {
-          if (w.t) {
-            w.pend = 0;
-            build(w);
-          } else {
-            G.trees.splice(G.trees.indexOf(w), 1);
-            G.stumps.push({ x: w.x });
-            if (w.site)
-              G.slots.push({
-                x: w.x,
-                t: w.site,
-                req: 0,
-                lvl: 0,
-                hp: 0,
-                ar: null,
-                cd: 0,
-                side: Math.sign(w.x - CX),
-              });
-            for (let i = 0; i < TREE_COINS; i++) G.groundCoins.push({ x: w.x + rnd(-12, 12) });
-            G.effects.push({ k: 'puff', x: w.x, l: 0.4 });
-          }
-          q.work = null;
-          q.hit = 0;
-        }
-      } else q.hit = 0;
+      q.hit = Math.abs(q.x - q.tx) < 4 ? 1 : 0;
     } else if (q.isBuilder && q.helping) {
       // Ajudante: vai até a obra e martela ao lado do construtor principal (acelera a obra).
       const hs = bl.filter((o) => o.helping === q.helping),
         idx = hs.indexOf(q);
       q.tx = q.helping.x + (idx % 2 ? 1 : -1) * (6 + Math.floor(idx / 2) * 6);
       q.hit = Math.abs(q.x - q.tx) < 4 ? 1 : 0;
+    } else if (q.isSpearman) {
+      // Lanceiro: de manhã, sem monstros por perto, pesca (até FISH_TRIES_PER_DAY vezes por dia; FISH_CHANCE de achar
+      // um peixe = 1 moeda). No resto do tempo fica no posto, na ponta da muralha, e ataca de lança (bloco 6c).
+      const side = q.spearKey === 'spearL' ? -1 : 1;
+      if (q.fishDay !== G.day) {
+        q.fishDay = G.day;
+        q.fishTries = 0;
+        q.fishT = 0;
+        q.fishSpot = null;
+      }
+      q.stabT = Math.max(0, (q.stabT || 0) - dt);
+      q.hit = q.stabT > 0 ? 1 : 0;
+      const morning = G.time % 1 < FISH_MORNING;
+      if (!nt && morning && G.greeds.length === 0 && q.fishTries < FISH_TRIES_PER_DAY) {
+        if (q.fishSpot == null) q.fishSpot = clamp(CX + rnd(-140, 140), zl, zr);
+        q.tx = q.fishSpot;
+        if (Math.abs(q.x - q.tx) < 4) {
+          q.fishing = 1;
+          q.fishT = (q.fishT || 0) + dt;
+          if (q.fishT >= FISH_TIME) {
+            q.fishT = 0;
+            q.fishTries++;
+            q.fishSpot = null;
+            q.fishing = 0;
+            if (Math.random() < FISH_CHANCE) {
+              G.groundCoins.push({ x: q.x });
+              G.effects.push({ k: 'pop', x: q.x, l: 0.3 });
+            }
+          }
+        } else q.fishing = 0;
+      } else {
+        q.fishing = 0;
+        const tip = spearTipX(side),
+          post = tip != null ? tip - side * 10 : side < 0 ? zl : zr; // posto: logo dentro da ponta da muralha
+        q.tx = post - side * 8 * (q.si || 0);
+      }
     } else if (q.isFarmer) {
       // Fazendeiro: escolhe uma fazenda construída com vaga (até FARM_CAPACITY[nível] por fazenda) e fica nela.
       // De dia trabalha sempre; à noite só continua se a fazenda estiver dentro das muralhas.
@@ -959,10 +1294,13 @@ function update(dt) {
       if (!(Math.abs(q.x - q.tx) < 3)) return;
       q.cd = (q.cd || 0) - dt;
       if (q.cd > 0) return;
+      // torre fora do muro enxerga só para a frente, mais longe; torre atrás do muro enxerga em volta
+      const fwd = towerExposed(s);
       let t = null,
-        bd = ARROW_TOWER_RANGE;
+        bd = fwd ? ARROW_TOWER_RANGE * TOWER_FORWARD_MULT : ARROW_TOWER_RANGE;
       G.greeds.forEach((g) => {
         const d = Math.abs(g.x - q.x);
+        if (fwd && (g.x - q.x) * s.side < 0) return;
         if (d < bd && !g.fl) {
           bd = d;
           t = g;
@@ -996,6 +1334,66 @@ function update(dt) {
   });
   // ===== 6b. Flechas em voo: acertam ou erram ao chegar =====
   updateArrows(dt);
+  updateShells(dt);
+  // ===== 6c. Lanceiros atacam corpo a corpo (não alcançam voadores) =====
+  G.peasants.forEach((q) => {
+    if (!q.isSpearman || q.fishing) return;
+    q.cd = (q.cd || 0) - dt;
+    if (q.cd > 0) return;
+    let t = null,
+      bd = SPEAR_REACH;
+    G.greeds.forEach((g) => {
+      const d = Math.abs(g.x - q.x);
+      if (!g.air && !g.fl && d < bd) {
+        bd = d;
+        t = g;
+      }
+    });
+    if (t) {
+      q.cd = SPEAR_COOLDOWN;
+      q.f = t.x < q.x;
+      q.stabT = 0.25;
+      G.effects.push({ k: 'puff', x: t.x, l: 0.2 });
+      t.hp -= SPEAR_DAMAGE;
+      if (t.hp <= 0) kill(t);
+    }
+  });
+  // ===== 6d. Catapultas: o operador dispara pedras ou, se houver, dinamites (uma de cada vez) =====
+  G.slots.forEach((s) => {
+    if (s.t !== 'cata' || s.lvl < 1 || s.pend || !s.op || s.x == null) return;
+    s.recoil = Math.max(0, (s.recoil || 0) - dt);
+    if (Math.abs(s.op.x - (s.x - s.side * 14)) > 10) return; // o operador precisa estar na cabana
+    s.cd = (s.cd || 0) - dt;
+    if (s.cd > 0) return;
+    let t = null,
+      bd = CATA_RANGE;
+    G.greeds.forEach((g) => {
+      const d = Math.abs(g.x - s.x);
+      if (!g.air && !g.fl && d < bd) {
+        bd = d;
+        t = g;
+      }
+    });
+    if (!t) return;
+    const dyn = s.ammo > 0;
+    if (dyn) s.ammo--;
+    const dist = Math.abs(t.x - s.x),
+      T = 0.6 + dist / 500,
+      lead = t.mv ? -t.side * t.sp * T : 0,
+      err = ((rnd(-1, 1) + rnd(-1, 1)) / 2) * (6 + dist * 0.04);
+    G.shells.push({
+      x0: s.x,
+      y0: 14,
+      x1: t.x + lead + err,
+      y1: 0,
+      t: 0,
+      T,
+      peak: 40 + dist * 0.25,
+      dyn,
+    });
+    s.cd = CATA_COOLDOWN;
+    s.recoil = 0.4;
+  });
   // ===== 7. Greed: andam até a sede, atacam muros/sede e roubam moedas de jogadores =====
   [...G.greeds].forEach((g) => {
     g.t += dt;
@@ -1030,6 +1428,11 @@ function update(dt) {
       return;
     }
     // Ataque a pessoas (não a vagabundos): ver hitPerson. O ladrão sai de cena (g.fl) e foge para o portal.
+    // Contato com a cabana da catapulta: ela é destruída.
+    const hut = G.slots.find(
+      (s) => s.t === 'cata' && s.lvl > 0 && s.x != null && Math.abs(s.x - g.x) < 14 + g.w / 2,
+    );
+    if (hut) destroyHut(hut);
     const victim = G.peasants.find((q) => Math.abs(q.x - g.x) < REACH && vulnerable(q, g));
     if (victim) hitPerson(g, victim);
     if (g.fl) return;
@@ -1128,10 +1531,12 @@ function snap(full) {
       isArcher: q.isArcher,
       isBuilder: q.isBuilder,
       isFarmer: q.isFarmer,
+      isSpearman: q.isSpearman,
+      spearKey: q.spearKey,
+      fishing: q.fishing,
       hurt: q.hurt > 0 ? 1 : 0,
       job: q.job,
       hit: q.hit,
-      workTime: q.workTime,
       wk: !q.work ? null : q.work.t ? 's' + si(q.work) : 't' + ti(q.work),
     })),
     vagrants: G.vagrants.map((v) => ({ id: v.id, x: v.x, tx: v.tx })),
@@ -1150,6 +1555,17 @@ function snap(full) {
     groundCoins: G.groundCoins,
     effects: G.effects,
     toolDrops: G.toolDrops,
+    shells: G.shells.map((a) => ({
+      x0: a.x0,
+      y0: a.y0,
+      x1: a.x1,
+      y1: a.y1,
+      t: a.t,
+      T: a.T,
+      peak: a.peak,
+      dyn: a.dyn,
+    })),
+    fires: G.fires.map((f) => ({ x: f.x, t: f.t })),
     arrows: G.arrows.map((a) => ({
       x0: a.x0,
       y0: a.y0,
@@ -1169,10 +1585,16 @@ function snap(full) {
       hp: s.hp,
       pend: s.pend,
       workers: s.workers,
+      progress: s.progress,
+      side: s.side,
+      ammo: s.ammo,
+      relocate: s.relocate,
+      recoil: s.recoil,
     }));
     d.trees = G.trees;
     d.stumps = G.stumps;
     d.chests = G.chests;
+    d.camps = G.camps;
   }
   return d;
 }
@@ -1194,6 +1616,7 @@ function applySnap(d) {
     d.trees = o.trees;
     d.stumps = o.stumps;
     d.chests = o.chests;
+    d.camps = o.camps;
   }
   d.numPlayers = 1;
   d.timeAtSnap = d.time;
