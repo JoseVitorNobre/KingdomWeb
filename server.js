@@ -16,9 +16,27 @@ const files = {
   '/game.js': ['game.js', 'text/javascript'],
   '/render.js': ['render.js', 'text/javascript'],
   '/client.js': ['client.js', 'text/javascript'],
+  '/assets.js': ['assets.js', 'text/javascript'],
+};
+const MIME = {
+  '.png': 'image/png',
+  '.json': 'application/json',
+  '.piskel': 'application/json',
 };
 const srv = http.createServer((req, res) => {
-  const f = files[req.url.split('?')[0]];
+  const url = decodeURIComponent(req.url.split('?')[0]);
+  // pasta assets/: sprites do Piskel e assets.json (bloqueia caminhos fora da pasta)
+  if (url.startsWith('/assets/')) {
+    const file = path.join(__dirname, url),
+      ok = file.startsWith(path.join(__dirname, 'assets') + path.sep) && fs.existsSync(file);
+    if (!ok) {
+      res.writeHead(404);
+      return res.end();
+    }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    return fs.createReadStream(file).pipe(res);
+  }
+  const f = files[url];
   if (!f) {
     res.writeHead(404);
     return res.end();

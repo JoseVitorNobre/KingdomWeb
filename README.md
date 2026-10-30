@@ -21,9 +21,25 @@ Jogador 2 local: setas.
 | `render.js` | Desenho: sprites (mapas de texto), cenário, HUD. Não altera o estado. |
 | `client.js` | Canvas, teclado, menu, modo local e online (predição e suavização). |
 | `server.js` | Servidor online (HTTP + WebSocket), roda `game.js`. |
-| `index.html` | Página: carrega game.js, render.js e client.js. |
+| `assets.js` | Carregador de sprites `.piskel` e `drawAsset`. |
+| `assets/` | Sprites `.piskel` e o `assets.json` que os registra. |
+| `index.html` | Página: carrega game.js, render.js, assets.js e client.js. |
 
 A legenda de todos os campos do estado (`G.players`, `G.peasants`...) está no topo de `game.js`.
+
+## Sprites feitos no Piskel
+
+O jogo lê arquivos `.piskel` diretamente (File > Save no Piskel). Não precisa exportar PNG: o arquivo já traz camadas, frames e fps.
+
+1. Desenhe no Piskel. Todos os quadros têm o tamanho do projeto (ex.: 64x64). A base do desenho é achada sozinha e fica apoiada no chão.
+2. Salve e coloque o `.piskel` na pasta `assets/`.
+3. Registre em `assets/assets.json`: `"nome": { "file": "arquivo.piskel" }`. Opções: `fps`, `scale`, `anchorX`, `anchorY`.
+4. Desenhe no jogo com `drawAsset('nome', T, x)` (em `render.js`). Devolve `false` se o sprite não carregou, então use o desenho antigo como reserva.
+
+Camadas são empilhadas da primeira para a última. Quadros totalmente transparentes são pulados. O fps vem do arquivo, a menos que o `assets.json` o substitua.
+
+Já em uso: `castle0_off` e `castle0_on` (fogueira da sede no tier 0, apagada de dia e acesa à noite).
+Código: `assets.js` (carregador e `drawAsset`) e o trecho "sede" de `view` em `render.js`.
 
 ## Onde mexer
 
