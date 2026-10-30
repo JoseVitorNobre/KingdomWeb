@@ -552,23 +552,27 @@ function view(vx, vy, vw, vh, p) {
     x.arc(CX, gy - 8, 50, 0, 7);
     x.fill();
   }
-  if (L >= 2)
-    for (const sg of [-1, 1]) {
-      B(CX + (sg * cw) / 2, 7, ch + 8, '#7b7468');
-      B(CX + (sg * cw) / 2, 9, 2, '#8a3b2e', ch + 8);
-      B(CX + (sg * cw) / 2, 5, 2, '#8a3b2e', ch + 10);
-    }
-  B(CX, cw, ch, '#8a8478');
-  B(CX, cw, 3, '#6b665c');
-  const k = Math.floor((cw + 8) / 6);
-  for (let r = 0; r < 6; r++) B(CX, cw + 8 - r * k, 2, '#8a3b2e', ch + r * 2);
-  B(CX - cw / 4, 4, 5, dk > 0.3 ? '#ffd070' : '#2b3a4a', ch / 2);
-  B(CX + cw / 4, 4, 5, dk > 0.3 ? '#ffd070' : '#2b3a4a', ch / 2);
-  B(CX, 6, 10, '#3b2a1c');
-  B(CX, 1, 10, '#4b3b2a', ch + 12);
-  B(CX + 3, 6, 4, '#e0b33c', ch + 18);
-  B(CX - cw / 2 - 10, 3, 3, dk > 0.3 ? '#ff9a2a' : '#4a4036');
-  B(CX - cw / 2 - 10, 5, 1, '#3a2616');
+  // Sede no tier 0: fogueira feita no Piskel (apagada de dia, acesa à noite). Se o sprite faltar, usa o desenho antigo.
+  const campfire = L === 0 && drawAsset(dk > CAMPFIRE_LIT_AT ? 'castle0_on' : 'castle0_off', T, CX);
+  if (!campfire) {
+    if (L >= 2)
+      for (const sg of [-1, 1]) {
+        B(CX + (sg * cw) / 2, 7, ch + 8, '#7b7468');
+        B(CX + (sg * cw) / 2, 9, 2, '#8a3b2e', ch + 8);
+        B(CX + (sg * cw) / 2, 5, 2, '#8a3b2e', ch + 10);
+      }
+    B(CX, cw, ch, '#8a8478');
+    B(CX, cw, 3, '#6b665c');
+    const k = Math.floor((cw + 8) / 6);
+    for (let r = 0; r < 6; r++) B(CX, cw + 8 - r * k, 2, '#8a3b2e', ch + r * 2);
+    B(CX - cw / 4, 4, 5, dk > 0.3 ? '#ffd070' : '#2b3a4a', ch / 2);
+    B(CX + cw / 4, 4, 5, dk > 0.3 ? '#ffd070' : '#2b3a4a', ch / 2);
+    B(CX, 6, 10, '#3b2a1c');
+    B(CX, 1, 10, '#4b3b2a', ch + 12);
+    B(CX + 3, 6, 4, '#e0b33c', ch + 18);
+    B(CX - cw / 2 - 10, 3, 3, dk > 0.3 ? '#ff9a2a' : '#4a4036');
+    B(CX - cw / 2 - 10, 5, 1, '#3a2616');
+  }
   // moedas
   G.groundCoins.forEach((c) =>
     spr(COIN, { y: '#f2c53d', Y: '#fff1a0' }, c.x, 2 + Math.abs(Math.sin(T * 3 + c.x)) * 2, false),

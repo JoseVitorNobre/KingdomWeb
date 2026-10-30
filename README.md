@@ -30,7 +30,8 @@ A legenda de todos os campos do estado (`G.players`, `G.peasants`...) está no t
 - **Equilíbrio** (preços, vida dos muros, duração do dia, nº de noites): constantes no topo de `game.js` e `cost`.
 - **Novo item comprável**: adicione um `cand(...)` em `targetFor` (game.js). Ele define posição, custo, o que acontece e o ícone.
 - **Novo inimigo**: no bloco "2. Surgimento dos Greed" crie o objeto com seus campos (vida, velocidade, dano); o comportamento fica no bloco "7. Greed". Para aparecer na tela, desenhe-o em `view` (render.js) e inclua os campos usados no desenho em `snap` (game.js).
-- **Mundo sorteado**: `mkWorld`, `pickSpots`, `BASE_SLOTS` (únicos pontos fixos) e as constantes `*_PER_SIDE`, `COMMON_TREES`, `CHEST_COINS_*` em `game.js`; acampamentos em `G.camps`.
+- **Saída dos monstros**: `spawnLead` e `SPAWN_LEAD_MAX` (bloco 2 de `update`); roubo de moedas/ferramentas do chão pelo Greed comum no bloco 7.
+- **Mundo sorteado**: `mkWorld`/`buildWorld` (malha de células de `CELL` px), `pickSpots`, `BASE_SLOTS` (únicos pontos fixos) e as constantes `*_PER_SIDE`, `COMMON_TREES`, `CHEST_COINS_*` em `game.js`; acampamentos em `G.camps`.
 - **Tiers da sede, lanceiro e catapulta**: `CENC`, `SPEAR_*`, `FISH_*`, `CATA_*`, `DYN*`, `FIRE_*`; `spearStandX`, `cataSpot`, `updateShells` em `game.js`; água da ilha e sprites provisórios (`cata`, `SPEARM`, `ROCK`, `DYN`) em `render.js`.
 - **Torre exposta**: `towerExposed` e `TOWER_FORWARD_MULT` em `game.js`. **Progresso de obras**: `w.progress` (bloco 5b3) e `finishJob`.
 - **Monstros x pessoas**: `REACH`, `HURT_TIME`, `ARROW_DAMAGE`, `START_*_MULT` no topo de `game.js`; `hitPerson`, `vulnerable`, `dropLoot` (roubo e ferramenta caída); cura no amanhecer no bloco 1.

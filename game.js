@@ -52,6 +52,7 @@ const BLOOD_SPEED = 1.5; // multiplicador da velocidade dos Greed na Lua de Sang
 // SPAWN_INTERVAL_MIN (último dia). Vida e velocidade iniciais já vêm multiplicadas (balanceamento).
 const SPAWN_INTERVAL_START = 1.0;
 const SPAWN_INTERVAL_MIN = 0.05;
+const SPAWN_LEAD_MAX = 0.45; // os monstros saem, no máximo, 45% do dia antes do anoitecer (ver spawnLead)
 const START_HP_MULT = 2; // vida inicial dos monstros x2
 const START_SPEED_MULT = 1.0; // velocidade inicial dos monstros (sem multiplicador)
 const START_DMG_MULT = 0.85; // dano inicial dos monstros -15%
@@ -83,14 +84,14 @@ const RAM_MULT = 8; // dano da investida = dano normal x RAM_MULT
 const GREED_KINDS = {
   normal: { hp: 2, sp: 38, dmg: 1, w: 8 },
   big: { hp: 6, sp: 28, dmg: 2, w: 14, from: 8, chance: 0.15 },
-  flyer: { hp: 2, sp: 54, dmg: 1, w: 8, from: 12, chance: 0.15, air: true },
+  flyer: { hp: 6, sp: 30, dmg: 1, w: 8, from: 12, chance: 0.15, air: true }, // vida do grande, mais lento que o comum (38)
   jumper: { hp: 3, sp: 44, dmg: 1, w: 8, from: 18, chance: 0.12 },
   charger: { hp: 5, sp: 32, dmg: 1, w: 12, from: 26, chance: 0.1 },
 };
 // ----- Tempo de obra -----
 // Segundos para concluir cada nível, com 1 construtor (ajudantes aceleram: ver helpBoost). A sede é instantânea.
 const BUILD_TIME = { wall: [10, 25, 60], bow: [10, 25, 60], farm: [10, 25], cata: [10] };
-const TREE_TIME = 20; // segundos para derrubar uma árvore
+const TREE_TIME = 10; // segundos para derrubar uma árvore (1 construtor)
 const TREE_COINS = 2; // moedas que uma árvore derrubada solta
 // ----- Lanceiro (bancada liberada no tier 3 da sede) -----
 // Fica na ponta da muralha lutando corpo a corpo e, de manhã, pesca na beira da ilha.
@@ -120,7 +121,7 @@ const FIRE_DPS = 4; // dano por segundo em quem pisa no fogo
 // A bancada e as fazendas só aparecem com a sede no nível 2 e uma muralha expandida: ver checkFarmUnlock().
 const FARMC = [4, 8]; // custo da fazenda (nível 1) e da melhoria para o nível 2 (precisam de construtor)
 const FARM_CAPACITY = [0, 8, 12]; // fazendeiros que cabem na fazenda, por nível dela
-const FARM_SITES = 6; // quantos terrenos de fazenda surgem, em posições aleatórias (alternando os lados)
+const FARM_SITES = 12; // terrenos de fazenda no mapa todo, metade em cada lado
 const FARM_YIELD = 3; // moedas que CADA fazendeiro gera por amanhecer (soltas na fazenda)
 // Um fazendeiro só rende depois de passar 1 amanhecer inteiro na fazenda, ou seja, a partir do 2º dia.
 // Preço da ferramenta de cada bancada (a ferramenta vira a profissão quando um camponês a pega).
@@ -160,11 +161,13 @@ const BASE_SLOTS = [
 ];
 // ----- Geração do mundo -----
 const HALF = WW / 2; // distância da sede até cada ponta do mapa
-const WALLS_RANDOM_PER_SIDE = 5; // muros sorteados por lado (além do muro fixo da base)
-const TOWERS_RANDOM_PER_SIDE = 3; // pontos de torre sorteados por lado (além da torre fixa da base)
-const TREE_SITES_PER_SIDE = 6; // árvores com placa por lado (viram ponto de muro ou torre ao serem cortadas)
-const CAMPS_PER_SIDE = 4; // acampamentos de vagabundos por lado
-const COMMON_TREES = 30; // árvores comuns no mapa inteiro
+const WALLS_RANDOM_PER_SIDE = 5; // muros sorteados por lado (além do muro fixo da base): 6 por lado, 12 no mapa
+const TOWERS_RANDOM_PER_SIDE = 3; // pontos de torre sorteados por lado (além da torre fixa da base): 4 por lado, 8 no mapa
+const TREE_SITES_PER_SIDE = 12; // árvores com placa por lado (viram ponto de muro ou torre ao serem cortadas)
+const CELL = 52; // espaçamento da malha de posições candidatas (px); cada ponto sorteado usa uma célula
+const JITTER = 5; // desvio aleatório de cada célula (px)
+const CAMPS_PER_SIDE = 3; // acampamentos de vagabundos por lado
+const COMMON_TREES = 100; // árvores comuns no mapa inteiro (as com placa, 12 por lado, são à parte)
 const CHESTS_PER_SIDE = 2; // baús por lado (antes eram 7 no mapa todo, com 4 a 7 moedas)
 const CHEST_COINS_MIN = 8; // moedas por baú: mais que antes, para compensar a menor quantidade
 const CHEST_COINS_MAX = 14;
@@ -267,44 +270,60 @@ function pickSpots(side, n, lo, hi, gap, group, avoid = [], avoidGap = 0) {
 }
 // Cria o mundo sorteado: pontos de muro/torre, terrenos de fazenda, árvores (comuns e com placa), baús e acampamentos.
 // Só a torre e o muro da base (BASE_SLOTS) têm posição fixa.
+// Embaralha uma lista (Fisher–Yates).
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 function buildWorld() {
-  const mk = (x, t, req, side) => ({ x, t, req, lvl: 0, hp: 0, ar: null, cd: 0, side });
-  const used = [CX, CX - 64, CX + 64, CX - 250, CX + 250], // sede, bancadas e bancada do fazendeiro
+  const mk = (x, t, req, side) => ({ x, t, req, lvl: 0, hp: 0, ar: null, cd: 0, side }),
+    dist = (x) => Math.abs(x - CX),
+    byDist = (a, b) => dist(a) - dist(b),
     slots = [],
     trees = [],
     camps = [],
     chests = [];
-  BASE_SLOTS.forEach(([o, t]) => {
-    used.push(CX + o);
-    slots.push(mk(CX + o, t, 1, Math.sign(o)));
-  });
+  // os únicos pontos fixos: a torre e o muro da base
+  BASE_SLOTS.forEach(([o, t]) => slots.push(mk(CX + o, t, 0, Math.sign(o))));
   for (const side of [-1, 1]) {
-    // muros: o 2º e o 3º de cada lado exigem sede tier 2; os demais, tier 3. Torres: a 2ª tier 2, as demais tier 3.
-    pickSpots(side, WALLS_RANDOM_PER_SIDE, 300, HALF - 200, 70, used).forEach((x, i) =>
-      slots.push(mk(x, 'wall', i < 2 ? 2 : 3, side)),
-    );
-    pickSpots(side, TOWERS_RANDOM_PER_SIDE, 280, HALF - 200, 60, used).forEach((x, i) =>
-      slots.push(mk(x, 'bow', i < 1 ? 2 : 3, side)),
-    );
-    // árvores com placa: ao serem cortadas viram ponto de muro ou torre
+    // acampamentos e baús primeiro; a malha de posições desvia deles
+    const sc = pickSpots(side, CAMPS_PER_SIDE, 500, HALF - 250, 350, []),
+      sb = pickSpots(side, CHESTS_PER_SIDE, 300, HALF - 200, 500, []);
+    camps.push(...sc);
+    sb.forEach((x) => chests.push({ x }));
+    // malha de posições candidatas: uma a cada CELL px, com pequeno desvio aleatório. Muros, torres, fazendas e árvores
+    // com placa ocupam células sorteadas (nunca duas na mesma), então nada se sobrepõe nem fica apertado demais.
+    let cells = [];
+    for (let d = 300; d <= HALF - 150; d += CELL) {
+      const x = Math.round(CX + side * (d + rnd(-JITTER, JITTER)));
+      if (sc.every((c) => Math.abs(c - x) >= 62) && sb.every((c) => Math.abs(c - x) >= 40))
+        cells.push(x);
+    }
+    // garantia: um ponto de muro e uma torre vizinha logo depois da base (a menos de 650 da sede)
+    const near = cells.filter((x) => dist(x) < 650),
+      w1 = near[Math.floor(Math.random() * near.length)];
+    cells = cells.filter((x) => x !== w1);
+    const t1 = cells.reduce((a, b) => (Math.abs(a - w1) <= Math.abs(b - w1) ? a : b));
+    cells = shuffle(cells.filter((x) => x !== t1));
+    const take = (k) => cells.splice(0, k);
+    // árvores com placa só longe da base (a partir de 700)
     const kinds = ['wall', 'bow', 'wall', 'bow', 'wall', 'wall'],
-      sites = [];
-    pickSpots(side, TREE_SITES_PER_SIDE, 700, HALF - 150, 110, sites, used, 45).forEach((x, i) => {
-      used.push(x);
-      trees.push({ x, mark: 0, v: i % 2, site: kinds[i % kinds.length] });
-    });
-  }
-  // terrenos de fazenda: alternam os lados, perto ou longe da base
-  const first = Math.random() < 0.5 ? -1 : 1;
-  for (let i = 0; i < FARM_SITES; i++) {
-    const side = i % 2 ? -first : first,
-      [x] = pickSpots(side, 1, 160, HALF - 250, 55, used);
-    if (x != null) slots.push(mk(x, 'farm', 0, side));
-  }
-  // acampamentos de vagabundos (longe da base e das construções) e baús (longe da base e entre si)
-  for (const side of [-1, 1]) {
-    pickSpots(side, CAMPS_PER_SIDE, 500, HALF - 250, 350, camps, used, 70);
-    pickSpots(side, CHESTS_PER_SIDE, 300, HALF - 200, 500, []).forEach((x) => chests.push({ x }));
+      sites = cells.filter((x) => dist(x) >= 700).slice(0, TREE_SITES_PER_SIDE);
+    cells = cells.filter((x) => !sites.includes(x));
+    sites
+      .sort(byDist)
+      .forEach((x, i) => trees.push({ x, mark: 0, v: i % 2, site: kinds[i % kinds.length] }));
+    // Todos os pontos de muro e torre aparecem desde o início (req 0): a sede só libera bancadas e melhorias.
+    [w1, ...take(WALLS_RANDOM_PER_SIDE - 1)]
+      .sort(byDist)
+      .forEach((x) => slots.push(mk(x, 'wall', 0, side)));
+    [t1, ...take(TOWERS_RANDOM_PER_SIDE - 1)]
+      .sort(byDist)
+      .forEach((x) => slots.push(mk(x, 'bow', 0, side)));
+    take(FARM_SITES / 2).forEach((x) => slots.push(mk(x, 'farm', 0, side)));
   }
   // árvores comuns em qualquer ponto do mapa, a mais de 200 da sede
   while (trees.length < COMMON_TREES + 2 * TREE_SITES_PER_SIDE) {
@@ -364,8 +383,8 @@ function spearStandX(side) {
 function cataBlocked(x) {
   const near = (v, r) => Math.abs(v - x) < r;
   return (
-    G.trees.some((t) => near(t.x, 22)) ||
-    G.slots.some((s) => s.t !== 'cata' && s.x != null && G.castle.lvl >= s.req && near(s.x, 24)) ||
+    G.trees.some((t) => near(t.x, 18)) ||
+    G.slots.some((s) => s.t !== 'cata' && s.x != null && G.castle.lvl >= s.req && near(s.x, 18)) ||
     G.camps.some((c) => near(c, 44)) ||
     [STANDS.ham, STANDS.bow, G.farmStandX, spearStandX(-1), spearStandX(1)].some(
       (v) => v != null && near(v, 26),
@@ -376,7 +395,7 @@ function cataBlocked(x) {
 function cataSpot(side) {
   const sx = spearStandX(side);
   if (sx == null) return null;
-  for (let off = CATA_BACK_GAP; off <= 200; off += 10) {
+  for (let off = CATA_BACK_GAP; off <= 600; off += 6) {
     const x = sx - side * off;
     if (Math.abs(x - CX) < 44) break; // chegou na sede
     if (!cataBlocked(x)) return x;
@@ -716,6 +735,26 @@ function hitWall(w, dmg) {
     w.progress = 0;
   }
 }
+// Antecedência (fração do dia) com que os monstros saem dos portais: o tempo que um Greed comum leva para ir do portal
+// até o muro construído mais próximo (ou até a sede, se não houver muro), para chegarem quando a noite começa.
+// Quanto mais longe o portal, mais cedo eles saem (no máximo SPAWN_LEAD_MAX do dia).
+function spawnLead() {
+  const speed = Math.min(
+      MAX_GREED_SPEED,
+      GREED_KINDS.normal.sp * START_SPEED_MULT * (1 + TIER_SPEED * greedTier(G.day)),
+    ),
+    walls = G.slots.filter((w) => w.t === 'wall' && w.lvl > 0);
+  let worst = 0;
+  for (const side of [-1, 1]) {
+    const portal = side < 0 ? 70 : WW - 70,
+      mine = walls.filter((w) => w.side === side),
+      target = mine.length
+        ? mine.reduce((a, b) => (Math.abs(a.x - portal) < Math.abs(b.x - portal) ? a : b)).x
+        : CX;
+    worst = Math.max(worst, Math.abs(target - portal) / speed);
+  }
+  return Math.min(SPAWN_LEAD_MAX, worst / dayLength(G.day));
+}
 // Altura (px) de um muro construído de nível lvl. Igual à usada no desenho.
 function wallHeight(lvl) {
   return 10 + lvl * 5;
@@ -870,19 +909,19 @@ function update(dt) {
       return;
     }
   }
-  // ===== 2. Surgimento dos Greed durante a noite =====
-  if (pr >= 0.6 && !G.nightStarted) {
+  // ===== 2. Surgimento dos Greed: saem dos portais com antecedência (spawnLead) para chegar quando anoitece =====
+  if (!G.nightStarted && pr >= 0.6 - spawnLead()) {
     G.nightStarted = 1;
     // Lua Roxa: ninguém nasce. Lua de Sangue: o dobro de monstros. Sem limite de quantidade.
-    G.greedsLeft = isPurpleMoon()
+    G.greedsLeft = isBloodDay(G.day - 1)
       ? 0
-      : Math.round((4 + 3 * G.day) * (isBloodMoon() ? BLOOD_COUNT : 1));
+      : Math.round((4 + 3 * G.day) * (isBloodDay(G.day) ? BLOOD_COUNT : 1));
   }
   if (G.nightStarted && G.greedsLeft > 0) {
     G.spawnTimer -= dt;
     if (G.spawnTimer <= 0) {
       const side = Math.random() < 0.5 ? -1 : 1,
-        blood = isBloodMoon(),
+        blood = isBloodDay(G.day), // a Lua de Sangue vale para todos os monstros do dia, mesmo os que saem mais cedo
         kind = pickGreedKind(G.day, blood),
         b = GREED_KINDS[kind],
         tier = greedTier(G.day);
@@ -1433,6 +1472,21 @@ function update(dt) {
       (s) => s.t === 'cata' && s.lvl > 0 && s.x != null && Math.abs(s.x - g.x) < 14 + g.w / 2,
     );
     if (hut) destroyHut(hut);
+    // O Greed comum rouba o que estiver no chão (moeda ou ferramenta caída) e foge para o portal.
+    if (g.kind === 'normal' && !g.loot) {
+      const ci = G.groundCoins.findIndex((c) => Math.abs(c.x - g.x) < REACH);
+      if (ci >= 0) {
+        G.groundCoins.splice(ci, 1);
+        g.loot = { type: 'coin' };
+        g.fl = 1;
+      } else {
+        const ti = G.toolDrops.findIndex((d) => Math.abs(d.x - g.x) < REACH);
+        if (ti >= 0) {
+          g.loot = { type: 'tool', tool: G.toolDrops.splice(ti, 1)[0].tool };
+          g.fl = 1;
+        }
+      }
+    }
     const victim = G.peasants.find((q) => Math.abs(q.x - g.x) < REACH && vulnerable(q, g));
     if (victim) hitPerson(g, victim);
     if (g.fl) return;
