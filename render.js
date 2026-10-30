@@ -546,15 +546,17 @@ function view(vx, vy, vw, vh, p) {
   const L = G.castle.lvl,
     cw = 22 + L * 8,
     ch = 16 + L * 5;
-  if (dk > 0) {
+  if (dk > 0 && L >= 1) {
+    // brilho da fogueira da sede à noite (no tier 0 a fogueira está apagada)
     x.fillStyle = `rgba(255,180,80,${0.18 * dk})`;
     x.beginPath();
     x.arc(CX, gy - 8, 50, 0, 7);
     x.fill();
   }
-  // Sede no tier 0: fogueira feita no Piskel (apagada de dia, acesa à noite). Se o sprite faltar, usa o desenho antigo.
-  const campfire = L === 0 && drawAsset(dk > CAMPFIRE_LIT_AT ? 'castle0_on' : 'castle0_off', T, CX);
-  if (!campfire) {
+  // Sprite da sede por tier, feito no Piskel: 'castle_tier0' (fogueira apagada), 'castle_tier1' (fogueira acesa) e, quando
+  // existirem em assets/assets.json, 'castle_tier2' e 'castle_tier3'. Sem sprite para o tier, usa o desenho antigo.
+  const customCastle = drawAsset('castle_tier' + L, T, CX);
+  if (!customCastle) {
     if (L >= 2)
       for (const sg of [-1, 1]) {
         B(CX + (sg * cw) / 2, 7, ch + 8, '#7b7468');

@@ -38,7 +38,7 @@ O jogo lê arquivos `.piskel` diretamente (File > Save no Piskel). Não precisa 
 
 Camadas são empilhadas da primeira para a última. Quadros totalmente transparentes são pulados. O fps vem do arquivo, a menos que o `assets.json` o substitua.
 
-Já em uso: `castle0_off` e `castle0_on` (fogueira da sede no tier 0, apagada de dia e acesa à noite).
+Já em uso: `castle_tier0` (fogueira apagada = sede no tier 0) e `castle_tier1` (fogueira acesa = sede no tier 1). Para os tiers 2 e 3, basta registrar `castle_tier2` e `castle_tier3` no `assets/assets.json`: o jogo usa o sprite do tier quando ele existe e o desenho antigo quando não existe.
 Código: `assets.js` (carregador e `drawAsset`) e o trecho "sede" de `view` em `render.js`.
 
 ## Onde mexer
